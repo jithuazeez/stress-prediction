@@ -1,17 +1,23 @@
 """
-Training script for MAML (Model-Agnostic Meta-Learning) with LOSO evaluation.
+MAML Training for Personalized Stress Prediction.
 
-Implements personalized stress prediction via meta-learning.
+Implements Model-Agnostic Meta-Learning (MAML) following Finn et al. 2017.
+Uses learn2learn for proper second-order gradient computation.
+
+Key fixes from original implementation:
+1. Uses learn2learn.algorithms.MAML for correct gradient flow
+2. Uses extracted statistical features (not flattened raw signals)
+3. Uses BALANCED k-shot sampling for support sets
+4. Computes threshold on training data to avoid data leakage
 
 References:
-- https://github.com/cbfinn/maml
-- https://arxiv.org/pdf/1703.03400
+- https://arxiv.org/pdf/1703.03400 (MAML paper)
 - https://github.com/learnables/learn2learn
 """
 
 import sys
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Optional
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
@@ -24,7 +30,6 @@ warnings.filterwarnings("ignore")
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.utils.data import DataLoader
 
 # Add parent directories to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -34,7 +39,8 @@ from shared.alignment import align_to_1hz
 from shared.windowing import create_labeled_windows, parse_stress_events
 from shared.evaluation import (
     evaluate_predictions, aggregate_fold_metrics,
-    save_results, save_predictions, plot_results
+    save_results, save_predictions, plot_results,
+    find_optimal_threshold
 )
 from shared.config import DEFAULT_CONFIG, Config
 from shared.logging_utils import (
@@ -42,106 +48,205 @@ from shared.logging_utils import (
     log_data_summary, log_model_results
 )
 
-from model import StressClassifier
-from meta_dataset import VitaStressMetaDataset
+from model import StressClassifier, create_maml_model
+from meta_dataset import (
+    StressMetaDataset, prepare_features_by_subject, 
+    get_feature_dim, FEATURE_NAMES
+)
 
-# Try to import learn2learn
+# Check for learn2learn
 try:
     import learn2learn as l2l
+    from learn2learn.algorithms import MAML
     LEARN2LEARN_AVAILABLE = True
 except ImportError:
     LEARN2LEARN_AVAILABLE = False
+    print("Warning: learn2learn not installed. Install with: pip install learn2learn")
 
 
-class ManualMAML:
+# =============================================================================
+# MAML Training Functions
+# =============================================================================
+
+def compute_loss(model: nn.Module, 
+                 X: torch.Tensor, 
+                 y: torch.Tensor,
+                 class_weights: Optional[torch.Tensor] = None) -> torch.Tensor:
     """
-    Manual MAML implementation (fallback when learn2learn not available).
+    Compute cross-entropy loss with optional class weighting.
     
-    Implements the core MAML algorithm:
-    1. Sample tasks (subjects)
-    2. For each task, compute adapted parameters via gradient descent
-    3. Evaluate adapted model on query set
-    4. Update meta-parameters based on query loss
+    Args:
+        model: Neural network model
+        X: Input features
+        y: Labels
+        class_weights: Optional class weights for imbalanced data
+    
+    Returns:
+        Loss tensor
     """
+    logits = model(X)
+    if class_weights is not None:
+        return F.cross_entropy(logits, y, weight=class_weights)
+    return F.cross_entropy(logits, y)
+
+
+def fast_adapt(learner, 
+               support_x: torch.Tensor, 
+               support_y: torch.Tensor,
+               adaptation_steps: int,
+               class_weights: Optional[torch.Tensor] = None) -> nn.Module:
+    """
+    Perform fast adaptation on support set.
     
-    def __init__(self, 
-                 model: nn.Module,
-                 lr_inner: float = 0.01,
-                 lr_outer: float = 0.001,
-                 n_inner_steps: int = 5):
-        self.model = model
-        self.lr_inner = lr_inner
-        self.lr_outer = lr_outer
-        self.n_inner_steps = n_inner_steps
+    This is the inner loop of MAML - adapts model parameters to a specific task.
+    
+    Args:
+        learner: learn2learn MAML learner (cloned model)
+        support_x: Support set features
+        support_y: Support set labels
+        adaptation_steps: Number of gradient steps for adaptation
+        class_weights: Optional class weights
+    
+    Returns:
+        Adapted learner
+    """
+    for _ in range(adaptation_steps):
+        loss = compute_loss(learner, support_x, support_y, class_weights)
+        learner.adapt(loss)  # learn2learn handles gradient computation correctly!
+    
+    return learner
+
+
+def meta_train_epoch(maml: MAML,
+                     meta_dataset: StressMetaDataset,
+                     meta_optimizer: torch.optim.Optimizer,
+                     device: torch.device,
+                     tasks_per_batch: int = 4,
+                     adaptation_steps: int = 5,
+                     class_weights: Optional[torch.Tensor] = None) -> float:
+    """
+    Perform one meta-training epoch.
+    
+    Outer loop: Updates meta-parameters based on post-adaptation performance.
+    
+    Args:
+        maml: learn2learn MAML wrapper
+        meta_dataset: StressMetaDataset instance
+        meta_optimizer: Optimizer for meta-parameters
+        device: Torch device
+        tasks_per_batch: Number of tasks per meta-batch
+        adaptation_steps: Inner loop steps
+        class_weights: Optional class weights
+    
+    Returns:
+        Average meta-loss for the epoch
+    """
+    meta_optimizer.zero_grad()
+    
+    meta_loss = 0.0
+    
+    # Sample batch of tasks
+    tasks = meta_dataset.sample_tasks(tasks_per_batch)
+    
+    for support_x, support_y, query_x, query_y in tasks:
+        # Move to device
+        support_x = support_x.to(device)
+        support_y = support_y.to(device)
+        query_x = query_x.to(device)
+        query_y = query_y.to(device)
         
-        self.meta_optimizer = torch.optim.Adam(model.parameters(), lr=lr_outer)
-    
-    def clone_model(self) -> nn.Module:
-        """Create a clone of the model with same weights."""
-        clone = type(self.model)(
-            input_dim=self.model.input_dim,
-            hidden_dim=self.model.hidden_dim,
-            n_classes=self.model.n_classes
+        # Clone model for this task
+        learner = maml.clone()
+        
+        # Inner loop: adapt to support set
+        learner = fast_adapt(
+            learner, support_x, support_y, 
+            adaptation_steps, class_weights
         )
-        clone.load_state_dict(self.model.state_dict())
-        return clone.to(next(self.model.parameters()).device)
+        
+        # Outer loop: evaluate on query set
+        query_loss = compute_loss(learner, query_x, query_y, class_weights)
+        meta_loss += query_loss
     
-    def adapt(self, 
-              support_x: torch.Tensor, 
-              support_y: torch.Tensor) -> nn.Module:
-        """
-        Adapt model to support set using gradient descent.
-        
-        Returns:
-            Adapted model clone
-        """
-        adapted = self.clone_model()
-        adapted.train()
-        
-        for _ in range(self.n_inner_steps):
-            logits = adapted(support_x)
-            loss = F.cross_entropy(logits, support_y)
-            
-            grads = torch.autograd.grad(loss, adapted.parameters(), create_graph=True)
-            
-            with torch.no_grad():
-                for param, grad in zip(adapted.parameters(), grads):
-                    param.sub_(self.lr_inner * grad)
-        
-        return adapted
+    # Average loss and backpropagate through adaptation
+    meta_loss = meta_loss / len(tasks)
+    meta_loss.backward()  # This backprops through the inner loop updates!
     
-    def meta_train_step(self, 
-                        tasks: List[Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]]) -> float:
-        """
-        Perform one meta-training step.
-        
-        Args:
-            tasks: List of (support_x, support_y, query_x, query_y) tuples
-        
-        Returns:
-            Average query loss
-        """
-        self.meta_optimizer.zero_grad()
-        
-        total_loss = 0.0
-        
-        for support_x, support_y, query_x, query_y in tasks:
-            # Adapt to support set
-            adapted = self.adapt(support_x, support_y)
-            
-            # Evaluate on query set
-            query_logits = adapted(query_x)
-            query_loss = F.cross_entropy(query_logits, query_y)
-            
-            total_loss += query_loss
-        
-        # Average loss and backprop
-        avg_loss = total_loss / len(tasks)
-        avg_loss.backward()
-        self.meta_optimizer.step()
-        
-        return avg_loss.item()
+    # Update meta-parameters
+    meta_optimizer.step()
+    
+    return meta_loss.item()
 
+
+def evaluate_adapted_model(maml: MAML,
+                           X: torch.Tensor,
+                           y: torch.Tensor,
+                           device: torch.device,
+                           adaptation_steps: int = 5,
+                           adapt_fraction: float = 0.2,
+                           class_weights: Optional[torch.Tensor] = None
+                           ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """
+    Evaluate model on a subject with adaptation.
+    
+    Split subject data into adapt set (for fine-tuning) and eval set (for metrics).
+    
+    Args:
+        maml: learn2learn MAML wrapper
+        X: All features for subject
+        y: All labels for subject
+        device: Torch device
+        adaptation_steps: Steps for adaptation
+        adapt_fraction: Fraction of data to use for adaptation
+        class_weights: Optional class weights
+    
+    Returns:
+        Tuple of (y_true, y_pred, y_proba) for eval set
+    """
+    n_samples = len(y)
+    n_adapt = max(5, int(n_samples * adapt_fraction))
+    
+    # Ensure we have enough samples
+    if n_samples <= n_adapt:
+        n_adapt = max(2, n_samples // 3)
+    
+    # Split into adapt and eval
+    indices = np.arange(n_samples)
+    np.random.shuffle(indices)
+    
+    adapt_indices = indices[:n_adapt]
+    eval_indices = indices[n_adapt:]
+    
+    if len(eval_indices) == 0:
+        eval_indices = indices  # Use all for eval if too few samples
+    
+    # Prepare tensors
+    adapt_x = X[adapt_indices].to(device)
+    adapt_y = y[adapt_indices].to(device)
+    eval_x = X[eval_indices].to(device)
+    eval_y = y[eval_indices]
+    
+    # Clone and adapt
+    learner = maml.clone()
+    learner = fast_adapt(learner, adapt_x, adapt_y, adaptation_steps, class_weights)
+    
+    # Evaluate
+    learner.eval()
+    with torch.no_grad():
+        logits = learner(eval_x)
+        proba = F.softmax(logits, dim=-1)[:, 1]
+        pred = torch.argmax(logits, dim=-1)
+    
+    return (
+        eval_y.numpy(),
+        pred.cpu().numpy(),
+        proba.cpu().numpy()
+    )
+
+
+# =============================================================================
+# Data Loading
+# =============================================================================
 
 def load_all_windows(config: Config, logger) -> Dict[str, List[Dict]]:
     """Load all windows grouped by subject."""
@@ -197,198 +302,73 @@ def load_all_windows(config: Config, logger) -> Dict[str, List[Dict]]:
     return windows_by_subject
 
 
-def prepare_window_data(windows: List[Dict], 
-                        config: Config,
-                        device: torch.device) -> Tuple[torch.Tensor, torch.Tensor]:
-    """Convert windows to tensors."""
-    X_list = []
-    y_list = []
-    
-    for window in windows:
-        df = window["window_data"]
-        
-        # Extract 4 channels
-        channels = []
-        
-        # ACC magnitude
-        if "acc_magnitude" in df.columns:
-            channels.append(df["acc_magnitude"].values)
-        else:
-            channels.append(np.zeros(len(df)))
-        
-        # Skin temperature
-        if "skin_temp" in df.columns:
-            channels.append(df["skin_temp"].values)
-        elif "skinTemperature" in df.columns:
-            channels.append(df["skinTemperature"].values)
-        else:
-            channels.append(np.zeros(len(df)))
-        
-        # EDA
-        if "eda_stress_skin" in df.columns:
-            channels.append(df["eda_stress_skin"].values)
-        elif "stressSkinConductance" in df.columns:
-            channels.append(df["stressSkinConductance"].values)
-        else:
-            channels.append(np.zeros(len(df)))
-        
-        # PPG mean
-        if "ppg_mean" in df.columns:
-            channels.append(df["ppg_mean"].values)
-        else:
-            channels.append(np.zeros(len(df)))
-        
-        # Stack channels and flatten for MLP
-        x = np.stack(channels, axis=0)  # (4, time)
-        x = np.nan_to_num(x, nan=0.0)
-        x = x.flatten()  # (4 * time,)
-        
-        X_list.append(x)
-        y_list.append(window.get(config.target_label, 0))
-    
-    X = torch.tensor(np.array(X_list), dtype=torch.float32).to(device)
-    y = torch.tensor(np.array(y_list), dtype=torch.long).to(device)
-    
-    return X, y
+# =============================================================================
+# LOSO Cross-Validation
+# =============================================================================
 
-
-def meta_train(model: nn.Module,
-               windows_by_subject: Dict[str, List[Dict]],
-               test_subject: str,
-               config: Config,
-               device: torch.device,
-               logger,
-               n_epochs: int = 100,
-               n_tasks_per_batch: int = 4,
-               k_support: int = 5,
-               k_query: int = 10,
-               lr_inner: float = 0.01,
-               lr_outer: float = 0.001,
-               n_inner_steps: int = 5) -> nn.Module:
-    """
-    Meta-train on all subjects except test subject.
-    
-    Returns:
-        Meta-trained model
-    """
-    train_subjects = [s for s in windows_by_subject.keys() if s != test_subject]
-    
-    if len(train_subjects) < 2:
-        return model
-    
-    maml = ManualMAML(model, lr_inner=lr_inner, lr_outer=lr_outer, 
-                      n_inner_steps=n_inner_steps)
-    
-    pbar = tqdm(range(n_epochs), desc="    Meta-training", leave=False, unit="epoch")
-    
-    for epoch in pbar:
-        # Sample tasks
-        task_subjects = random.sample(train_subjects, min(n_tasks_per_batch, len(train_subjects)))
-        
-        tasks = []
-        for task_subject in task_subjects:
-            windows = windows_by_subject[task_subject]
-            
-            if len(windows) < k_support + k_query:
-                continue
-            
-            # Sample support and query
-            indices = random.sample(range(len(windows)), k_support + k_query)
-            support_windows = [windows[i] for i in indices[:k_support]]
-            query_windows = [windows[i] for i in indices[k_support:]]
-            
-            support_x, support_y = prepare_window_data(support_windows, config, device)
-            query_x, query_y = prepare_window_data(query_windows, config, device)
-            
-            tasks.append((support_x, support_y, query_x, query_y))
-        
-        if tasks:
-            loss = maml.meta_train_step(tasks)
-            pbar.set_postfix({"Loss": f"{loss:.4f}"})
-    
-    pbar.close()
-    return maml.model
-
-
-def evaluate_on_subject(model: nn.Module,
-                        windows: List[Dict],
-                        config: Config,
-                        device: torch.device,
-                        n_adapt_steps: int = 5,
-                        adapt_lr: float = 0.01) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """
-    Evaluate model on a subject with adaptation.
-    
-    Uses first few windows for adaptation, rest for evaluation.
-    """
-    if len(windows) < 5:
-        X, y = prepare_window_data(windows, config, device)
-        with torch.no_grad():
-            logits = model(X)
-            proba = torch.softmax(logits, dim=-1)[:, 1]
-            pred = torch.argmax(logits, dim=-1)
-        return y.cpu().numpy(), pred.cpu().numpy(), proba.cpu().numpy()
-    
-    # Split into adapt and eval sets
-    n_adapt = min(5, len(windows) // 4)
-    adapt_windows = windows[:n_adapt]
-    eval_windows = windows[n_adapt:]
-    
-    # Clone model for adaptation
-    adapted = type(model)(
-        input_dim=model.input_dim,
-        hidden_dim=model.hidden_dim,
-        n_classes=model.n_classes
-    )
-    adapted.load_state_dict(model.state_dict())
-    adapted = adapted.to(device)
-    
-    # Adapt to this subject
-    adapt_x, adapt_y = prepare_window_data(adapt_windows, config, device)
-    optimizer = torch.optim.SGD(adapted.parameters(), lr=adapt_lr)
-    
-    adapted.train()
-    for _ in range(n_adapt_steps):
-        logits = adapted(adapt_x)
-        loss = F.cross_entropy(logits, adapt_y)
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
-    
-    # Evaluate
-    eval_x, eval_y = prepare_window_data(eval_windows, config, device)
-    
-    adapted.eval()
-    with torch.no_grad():
-        logits = adapted(eval_x)
-        proba = torch.softmax(logits, dim=-1)[:, 1]
-        pred = torch.argmax(logits, dim=-1)
-    
-    return eval_y.cpu().numpy(), pred.cpu().numpy(), proba.cpu().numpy()
-
-
-def loso_cross_validation(windows_by_subject: Dict[str, List[Dict]],
+def loso_cross_validation(features_by_subject: Dict[str, Tuple[np.ndarray, np.ndarray]],
                           config: Config,
                           device: torch.device,
                           logger,
-                          n_meta_epochs: int = 100) -> Dict:
-    """Perform LOSO CV with MAML."""
-    subjects = list(windows_by_subject.keys())
+                          n_meta_epochs: int = 100,
+                          tasks_per_batch: int = 4,
+                          adaptation_steps: int = 5,
+                          meta_lr: float = 0.001,
+                          inner_lr: float = 0.01,
+                          threshold_method: str = "youden") -> Dict:
+    """
+    Perform LOSO cross-validation with MAML.
+    
+    For each fold:
+    1. Meta-train on all subjects except test subject
+    2. Adapt to test subject using small portion of their data
+    3. Evaluate on remaining test subject data
+    
+    Args:
+        features_by_subject: Dict mapping subject_id to (X, y)
+        config: Configuration object
+        device: Torch device
+        logger: Logger instance
+        n_meta_epochs: Number of meta-training epochs per fold
+        tasks_per_batch: Tasks per meta-batch
+        adaptation_steps: Inner loop adaptation steps
+        meta_lr: Meta-learning rate (outer loop)
+        inner_lr: Adaptation learning rate (inner loop)
+        threshold_method: Method for finding decision threshold
+    
+    Returns:
+        Results dictionary
+    """
+    if not LEARN2LEARN_AVAILABLE:
+        raise ImportError("learn2learn is required for MAML. Install with: pip install learn2learn")
+    
+    subjects = list(features_by_subject.keys())
     n_subjects = len(subjects)
     
-    # Calculate input dimension
-    sample_window = list(windows_by_subject.values())[0][0]["window_data"]
-    input_dim = 4 * len(sample_window)  # 4 channels * time steps
+    # Determine feature dimension
+    sample_X, _ = list(features_by_subject.values())[0]
+    input_dim = sample_X.shape[1]
     
-    logger.info(f"\nLOSO CV with {n_subjects} subjects")
-    logger.info(f"  Input dim: {input_dim}")
-    logger.info(f"  Meta epochs per fold: {n_meta_epochs}")
+    logger.info(f"\n{'='*60}")
+    logger.info("MAML LOSO Cross-Validation")
+    logger.info(f"{'='*60}")
+    logger.info(f"  Subjects: {n_subjects}")
+    logger.info(f"  Feature dim: {input_dim}")
+    logger.info(f"  Meta epochs/fold: {n_meta_epochs}")
+    logger.info(f"  Tasks per batch: {tasks_per_batch}")
+    logger.info(f"  Adaptation steps: {adaptation_steps}")
+    logger.info(f"  Meta LR (outer): {meta_lr}")
+    logger.info(f"  Inner LR: {inner_lr}")
+    logger.info(f"  Threshold method: {threshold_method}")
+    logger.info(f"{'='*60}\n")
     
+    # Storage for results
     all_y_true = []
     all_y_pred = []
     all_y_proba = []
     all_subjects = []
     fold_metrics = []
+    fold_thresholds = []
     
     start_time = time.time()
     
@@ -397,48 +377,143 @@ def loso_cross_validation(windows_by_subject: Dict[str, List[Dict]],
     for fold_idx, test_subject in pbar:
         pbar.set_description(f"Fold {fold_idx+1}/{n_subjects} ({test_subject[:8]}...)")
         
-        # Create fresh model for each fold
-        model = StressClassifier(
+        # Split data
+        train_subjects = [s for s in subjects if s != test_subject]
+        train_features = {s: features_by_subject[s] for s in train_subjects}
+        
+        # Compute class weights from training data
+        all_train_y = np.concatenate([features_by_subject[s][1] for s in train_subjects])
+        n_pos = np.sum(all_train_y == 1)
+        n_neg = np.sum(all_train_y == 0)
+        
+        if n_pos > 0 and n_neg > 0:
+            weight_pos = n_neg / n_pos
+            class_weights = torch.tensor([1.0, weight_pos], dtype=torch.float32).to(device)
+        else:
+            class_weights = None
+        
+        # Create meta-dataset for training (balanced sampling!)
+        meta_dataset = StressMetaDataset(
+            train_features,
+            k_support=10,  # Support set size
+            k_query=20     # Query set size
+        )
+        
+        # Create model and wrap with learn2learn MAML
+        model = create_maml_model(
+            model_type="mlp",
             input_dim=input_dim,
-            hidden_dim=64,
-            n_classes=2
+            hidden_dim=64
         ).to(device)
         
-        # Meta-train on other subjects
-        model = meta_train(
-            model,
-            windows_by_subject,
-            test_subject,
-            config,
-            device,
-            logger,
-            n_epochs=n_meta_epochs
+        # Wrap with MAML - this handles gradient computation correctly!
+        maml = MAML(model, lr=inner_lr, first_order=False)  # first_order=False for full MAML
+        
+        # Meta-optimizer (outer loop)
+        meta_optimizer = torch.optim.Adam(maml.parameters(), lr=meta_lr)
+        
+        # Meta-training
+        epoch_losses = []
+        epoch_pbar = tqdm(range(n_meta_epochs), desc="    Meta-training", 
+                         leave=False, unit="epoch")
+        
+        for epoch in epoch_pbar:
+            loss = meta_train_epoch(
+                maml, meta_dataset, meta_optimizer, device,
+                tasks_per_batch=tasks_per_batch,
+                adaptation_steps=adaptation_steps,
+                class_weights=class_weights
+            )
+            epoch_losses.append(loss)
+            epoch_pbar.set_postfix({"Loss": f"{loss:.4f}"})
+        
+        epoch_pbar.close()
+        
+        # Get training predictions for threshold selection
+        train_y_true_all = []
+        train_y_proba_all = []
+        
+        for train_subj in train_subjects[:5]:  # Use subset for efficiency
+            X, y = features_by_subject[train_subj]
+            X_tensor = torch.tensor(X, dtype=torch.float32)
+            y_tensor = torch.tensor(y, dtype=torch.long)
+            
+            _, _, proba = evaluate_adapted_model(
+                maml, X_tensor, y_tensor, device,
+                adaptation_steps=adaptation_steps,
+                class_weights=class_weights
+            )
+            # Note: This uses eval portion, but for threshold we need more coverage
+            # Use raw model prediction on all data
+            maml.module.eval()
+            with torch.no_grad():
+                all_proba = F.softmax(maml.module(X_tensor.to(device)), dim=-1)[:, 1]
+            train_y_true_all.extend(y)
+            train_y_proba_all.extend(all_proba.cpu().numpy())
+        
+        train_y_true_all = np.array(train_y_true_all)
+        train_y_proba_all = np.array(train_y_proba_all)
+        
+        # Find optimal threshold on training data
+        fold_threshold, _ = find_optimal_threshold(
+            train_y_true_all, train_y_proba_all, method=threshold_method
+        )
+        fold_thresholds.append(fold_threshold)
+        
+        # Evaluate on test subject
+        test_X, test_y = features_by_subject[test_subject]
+        test_X_tensor = torch.tensor(test_X, dtype=torch.float32)
+        test_y_tensor = torch.tensor(test_y, dtype=torch.long)
+        
+        y_true, y_pred_raw, y_proba = evaluate_adapted_model(
+            maml, test_X_tensor, test_y_tensor, device,
+            adaptation_steps=adaptation_steps,
+            class_weights=class_weights
         )
         
-        # Evaluate on test subject with adaptation
-        test_windows = windows_by_subject[test_subject]
-        y_true, y_pred, y_proba = evaluate_on_subject(
-            model, test_windows, config, device
-        )
+        # Apply threshold from training data
+        y_pred = (y_proba >= fold_threshold).astype(int)
         
-        # Store
+        # Store results
         all_y_true.extend(y_true)
         all_y_pred.extend(y_pred)
         all_y_proba.extend(y_proba)
         all_subjects.extend([test_subject] * len(y_true))
         
         # Fold metrics
-        fold_metric = evaluate_predictions(y_true, y_pred, y_proba, "maml")
+        fold_metric = evaluate_predictions(
+            y_true, y_pred, y_proba, "maml",
+            threshold=fold_threshold
+        )
         fold_metric["subject"] = test_subject
+        fold_metric["train_loss"] = np.mean(epoch_losses[-10:])  # Last 10 epochs
         fold_metrics.append(fold_metric)
         
-        fold_auroc = fold_metric.get("auroc", float("nan"))
-        pbar.set_postfix({"AUROC": f"{fold_auroc:.3f}", "Test": len(y_true)})
+        # Log fold results
+        auroc = fold_metric.get("auroc", float("nan"))
+        sens = fold_metric.get("sensitivity", float("nan"))
+        spec = fold_metric.get("specificity", float("nan"))
+        
+        logger.info(f"\n  Fold {fold_idx+1}/{n_subjects} - Subject {test_subject[:12]}...")
+        logger.info(f"    Train: {len(all_train_y)} samples ({n_pos}/{n_neg} pos/neg)")
+        logger.info(f"    Test:  {len(y_true)} samples")
+        logger.info(f"    Meta-Loss: {np.mean(epoch_losses):.4f}")
+        logger.info(f"    Threshold: {fold_threshold:.4f} (from training, method={threshold_method})")
+        logger.info(f"    --- Metrics ---")
+        logger.info(f"    AUROC:       {auroc:.4f}")
+        logger.info(f"    Sensitivity: {sens:.4f}")
+        logger.info(f"    Specificity: {spec:.4f}")
+        
+        pbar.set_postfix({
+            "AUROC": f"{auroc:.3f}", 
+            "Sens": f"{sens:.3f}",
+            "Spec": f"{spec:.3f}"
+        })
     
     pbar.close()
     
     elapsed = time.time() - start_time
-    logger.info(f"Training completed in {elapsed/60:.1f} minutes")
+    logger.info(f"\nTraining completed in {elapsed/60:.1f} minutes")
     
     # Convert to arrays
     all_y_true = np.array(all_y_true)
@@ -446,10 +521,19 @@ def loso_cross_validation(windows_by_subject: Dict[str, List[Dict]],
     all_y_proba = np.array(all_y_proba)
     all_subjects = np.array(all_subjects)
     
+    # Final threshold (mean of fold thresholds)
+    final_threshold = np.mean(fold_thresholds)
+    logger.info(f"\nFinal threshold (mean of folds): {final_threshold:.4f}")
+    
     # Aggregate metrics
-    aggregate_metrics = evaluate_predictions(all_y_true, all_y_pred, all_y_proba, "maml")
+    aggregate_metrics = evaluate_predictions(
+        all_y_true, all_y_pred, all_y_proba, "maml",
+        threshold=final_threshold
+    )
     fold_aggregated = aggregate_fold_metrics(fold_metrics)
     aggregate_metrics.update(fold_aggregated)
+    aggregate_metrics["threshold_method"] = threshold_method
+    aggregate_metrics["final_threshold"] = final_threshold
     
     return {
         "metrics": aggregate_metrics,
@@ -457,9 +541,14 @@ def loso_cross_validation(windows_by_subject: Dict[str, List[Dict]],
         "y_pred": all_y_pred,
         "y_proba": all_y_proba,
         "subjects": all_subjects,
-        "fold_metrics": fold_metrics
+        "fold_metrics": fold_metrics,
+        "fold_thresholds": fold_thresholds
     }
 
+
+# =============================================================================
+# Main Entry Point
+# =============================================================================
 
 def main():
     """Main MAML training pipeline."""
@@ -471,12 +560,17 @@ def main():
     # Setup logging
     logger = setup_logger("maml", log_file=results_dir / "training.log")
     
-    log_experiment_start(logger, "MAML META-LEARNING TRAINING")
+    log_experiment_start(logger, "MAML META-LEARNING TRAINING (learn2learn)")
     
+    # Check for learn2learn
     if LEARN2LEARN_AVAILABLE:
-        logger.info("learn2learn: Available ✓")
+        logger.info("✓ learn2learn: Available")
+        logger.info("  Using proper second-order MAML with gradient flow through inner loop")
     else:
-        logger.warning("learn2learn: Not available - using manual MAML implementation")
+        logger.error("✗ learn2learn: Not available!")
+        logger.error("  Install with: pip install learn2learn")
+        logger.error("  Cannot run MAML without learn2learn.")
+        return
     
     # Device
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -485,15 +579,20 @@ def main():
     if device.type == "cuda":
         logger.info(f"  GPU: {torch.cuda.get_device_name(0)}")
     
-    # Set seeds
+    # Set seeds for reproducibility
     torch.manual_seed(config.random_seed)
     np.random.seed(config.random_seed)
     random.seed(config.random_seed)
     
-    # Load all windows
-    logger.info("\n" + "-"*50)
-    logger.info("PHASE 1: Loading data")
-    logger.info("-"*50)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(config.random_seed)
+    
+    # ==========================================================================
+    # Phase 1: Load Data
+    # ==========================================================================
+    logger.info("\n" + "="*60)
+    logger.info("PHASE 1: Loading and Preprocessing Data")
+    logger.info("="*60)
     
     windows_by_subject = load_all_windows(config, logger)
     
@@ -501,33 +600,77 @@ def main():
         logger.error("No data loaded!")
         return
     
-    total_windows = sum(len(w) for w in windows_by_subject.values())
-    n_pos = sum(sum(1 for w in windows if w.get(config.target_label, 0) == 1)
-                for windows in windows_by_subject.values())
+    # ==========================================================================
+    # Phase 2: Extract Features
+    # ==========================================================================
+    logger.info("\n" + "="*60)
+    logger.info("PHASE 2: Extracting Statistical Features")
+    logger.info("="*60)
+    logger.info(f"  Feature set: {len(FEATURE_NAMES)} features (emotional stress indicators)")
+    logger.info(f"  Normalization: Subject-wise z-score")
+    
+    features_by_subject = prepare_features_by_subject(
+        windows_by_subject,
+        label_col=config.target_label,
+        normalize=True
+    )
+    
+    # Summary
+    total_samples = sum(len(y) for _, (_, y) in features_by_subject.items())
+    total_positive = sum(np.sum(y == 1) for _, (_, y) in features_by_subject.items())
     
     log_data_summary(
         logger,
-        n_subjects=len(windows_by_subject),
-        n_windows=total_windows,
-        n_features=4,
-        n_positive=n_pos,
-        n_negative=total_windows - n_pos
+        n_subjects=len(features_by_subject),
+        n_windows=total_samples,
+        n_features=len(FEATURE_NAMES),
+        n_positive=total_positive,
+        n_negative=total_samples - total_positive
     )
     
-    # Run LOSO CV
-    logger.info("\n" + "-"*50)
-    logger.info("PHASE 2: Meta-Learning Training (LOSO CV)")
-    logger.info("-"*50)
+    # ==========================================================================
+    # Phase 3: MAML Training with LOSO CV
+    # ==========================================================================
+    logger.info("\n" + "="*60)
+    logger.info("PHASE 3: MAML Meta-Learning (LOSO Cross-Validation)")
+    logger.info("="*60)
+    
+    # Hyperparameters
+    N_META_EPOCHS = 50          # Meta-training epochs per fold
+    TASKS_PER_BATCH = 4         # Tasks (subjects) per meta-batch
+    ADAPTATION_STEPS = 5        # Inner loop gradient steps
+    META_LR = 0.001             # Outer loop learning rate
+    INNER_LR = 0.01             # Inner loop learning rate
+    THRESHOLD_METHOD = "youden" # Threshold selection method
+    
+    logger.info(f"\nHyperparameters:")
+    logger.info(f"  Meta epochs: {N_META_EPOCHS}")
+    logger.info(f"  Tasks/batch: {TASKS_PER_BATCH}")
+    logger.info(f"  Adapt steps: {ADAPTATION_STEPS}")
+    logger.info(f"  Meta LR: {META_LR}")
+    logger.info(f"  Inner LR: {INNER_LR}")
+    logger.info(f"  Threshold: {THRESHOLD_METHOD}")
     
     results = loso_cross_validation(
-        windows_by_subject,
+        features_by_subject,
         config,
         device,
         logger,
-        n_meta_epochs=50
+        n_meta_epochs=N_META_EPOCHS,
+        tasks_per_batch=TASKS_PER_BATCH,
+        adaptation_steps=ADAPTATION_STEPS,
+        meta_lr=META_LR,
+        inner_lr=INNER_LR,
+        threshold_method=THRESHOLD_METHOD
     )
     
-    # Log results
+    # ==========================================================================
+    # Phase 4: Results Summary
+    # ==========================================================================
+    logger.info("\n" + "="*60)
+    logger.info("PHASE 4: Results Summary")
+    logger.info("="*60)
+    
     log_model_results(logger, "MAML", results["metrics"])
     
     # Save results
@@ -537,14 +680,32 @@ def main():
         results["subjects"], results_dir, "maml"
     )
     
-    if len(np.unique(results["y_true"])) > 1:
-        plot_results(results["y_true"], results["y_proba"], "maml", results_dir)
-    
+    # Save fold metrics
     fold_df = pd.DataFrame(results["fold_metrics"])
     fold_df.to_csv(results_dir / "maml_fold_metrics.csv", index=False)
     
+    # Generate plots
+    if len(np.unique(results["y_true"])) > 1:
+        plot_results(
+            results["y_true"], results["y_proba"], "maml", results_dir,
+            y_pred=results["y_pred"]
+        )
+    
     log_experiment_end(logger, "MAML META-LEARNING TRAINING")
-    logger.info(f"All results saved to: {results_dir}")
+    logger.info(f"\nAll results saved to: {results_dir}")
+    
+    # Print key metrics
+    metrics = results["metrics"]
+    print("\n" + "="*60)
+    print("MAML RESULTS SUMMARY")
+    print("="*60)
+    print(f"AUROC:       {metrics.get('auroc', 0):.4f} (±{metrics.get('auroc_std', 0):.4f})")
+    print(f"PR-AUC:      {metrics.get('pr_auc', 0):.4f} (±{metrics.get('pr_auc_std', 0):.4f})")
+    print(f"Sensitivity: {metrics.get('sensitivity', 0):.4f} (±{metrics.get('sensitivity_std', 0):.4f})")
+    print(f"Specificity: {metrics.get('specificity', 0):.4f} (±{metrics.get('specificity_std', 0):.4f})")
+    print(f"F1-Score:    {metrics.get('f1', 0):.4f} (±{metrics.get('f1_std', 0):.4f})")
+    print(f"Threshold:   {metrics.get('final_threshold', 0.5):.4f} (method={THRESHOLD_METHOD})")
+    print("="*60)
 
 
 if __name__ == "__main__":

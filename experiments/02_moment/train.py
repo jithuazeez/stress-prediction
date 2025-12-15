@@ -319,7 +319,6 @@ def loso_cross_validation(windows_by_subject: Dict[str, List[Dict]],
     logger.info(f"  Epochs per fold: {n_epochs}")
     logger.info(f"  Batch size: {batch_size}")
     logger.info(f"  Learning rate: {learning_rate}")
-    logger.info(f"  Backbone: Frozen (only classification head trained)")
     logger.info(f"\nEvaluation Strategy:")
     logger.info(f"  Threshold Method: {threshold_method}")
     logger.info(f"  Threshold computed on TRAINING data (no data leakage)")
@@ -335,6 +334,10 @@ def loso_cross_validation(windows_by_subject: Dict[str, List[Dict]],
     best_auroc = 0.0
     best_fold_idx = -1
     
+    # Unfreezing strategy (RECOMMENDED: 2 for ~1000 samples)
+    UNFREEZE_LAST_N_BLOCKS = 2
+    logger.info(f"  Backbone: Frozen with last {UNFREEZE_LAST_N_BLOCKS} transformer blocks unfrozen")
+    
     # Store hyperparameters
     hyperparameters = {
         'n_epochs': n_epochs,
@@ -346,6 +349,7 @@ def loso_cross_validation(windows_by_subject: Dict[str, List[Dict]],
         'prediction_horizons': config.horizons_minutes,
         'target_label': config.target_label,
         'freeze_backbone': True,
+        'unfreeze_last_n_blocks': UNFREEZE_LAST_N_BLOCKS,
         'optimizer': 'Adam',
         'loss_function': 'CrossEntropyLoss_weighted',
         'device': str(device),
@@ -384,13 +388,23 @@ def loso_cross_validation(windows_by_subject: Dict[str, List[Dict]],
         train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
         test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
         
-        # Create model
+        # Create model with selective unfreezing
+        # RECOMMENDED: unfreeze_last_n_blocks=2 for ~1000 samples
         model = create_moment_model(
             n_channels=config.n_channels,
             num_classes=2,
             freeze_backbone=True,
-            use_simple=True
+            unfreeze_last_n_blocks=UNFREEZE_LAST_N_BLOCKS,
+            use_simple=False
         ).to(device)
+        
+        # Log trainable parameters (only on first fold)
+        if fold_idx == 0:
+            param_info = model.get_trainable_params_info()
+            logger.info(f"\n  Model Parameters:")
+            logger.info(f"    Total:     {param_info['total_params']:,}")
+            logger.info(f"    Trainable: {param_info['trainable_params']:,} ({param_info['trainable_pct']:.1f}%)")
+            logger.info(f"    Frozen:    {param_info['frozen_params']:,}")
         
         # Class weights
         n_pos = sum(1 for w in train_windows if w.get(config.target_label, 0) == 1)
@@ -398,7 +412,27 @@ def loso_cross_validation(windows_by_subject: Dict[str, List[Dict]],
         weight = torch.tensor([1.0, np.sqrt(n_neg / max(n_pos, 1))], dtype=torch.float32).to(device)
         
         criterion = nn.CrossEntropyLoss(weight=weight)
-        optimizer = optim.Adam(model.parameters(), lr=learning_rate)
+        
+        # Discriminative learning rates: lower LR for backbone, higher for head
+        # This prevents catastrophic forgetting of pretrained knowledge
+        if UNFREEZE_LAST_N_BLOCKS > 0:
+            # Separate parameters into backbone and head
+            backbone_params = []
+            head_params = []
+            
+            for name, param in model.named_parameters():
+                if param.requires_grad:
+                    if any(x in name.lower() for x in ['head', 'class', 'classifier']):
+                        head_params.append(param)
+                    else:
+                        backbone_params.append(param)
+            
+            optimizer = optim.Adam([
+                {'params': backbone_params, 'lr': learning_rate * 0.1},  # 10x lower for backbone
+                {'params': head_params, 'lr': learning_rate}             # Full LR for head
+            ])
+        else:
+            optimizer = optim.Adam(model.parameters(), lr=learning_rate)
         
         # Training loop
         best_train_loss = float('inf')
@@ -651,7 +685,8 @@ def main():
     final_model = create_moment_model(
         n_channels=config.n_channels,
         num_classes=2,
-        freeze_backbone=True
+        freeze_backbone=True,
+        unfreeze_last_n_blocks=2  # Match training configuration
     ).to(device)
     
     model_path, config_path, summary_path = save_final_model_and_config(
