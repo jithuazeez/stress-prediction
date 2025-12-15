@@ -572,12 +572,19 @@ def main():
         logger.error("  Cannot run MAML without learn2learn.")
         return
     
-    # Device
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    # Device (with MPS support for Apple Silicon)
+    if torch.cuda.is_available():
+        device = torch.device("cuda")
+    elif torch.backends.mps.is_available():
+        device = torch.device("mps")
+    else:
+        device = torch.device("cpu")
     logger.info(f"Device: {device}")
     
     if device.type == "cuda":
         logger.info(f"  GPU: {torch.cuda.get_device_name(0)}")
+    elif device.type == "mps":
+        logger.info("  Apple Silicon GPU (Metal Performance Shaders)")
     
     # Set seeds for reproducibility
     torch.manual_seed(config.random_seed)

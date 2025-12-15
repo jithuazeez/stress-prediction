@@ -18,7 +18,8 @@ class Config:
     """Configuration for VitaStress experiments."""
     
     # Paths
-    data_path: Path = Path("/Users/jithuazeez/Documents/Msc/Dissertation/Datasets/VitaStress/data")
+    # data_path: Path = Path("/Users/jithuazeez/Documents/Msc/Dissertation/Datasets/VitaStress/data")
+    data_path: Path = Path("/kaggle/input/vitastress/VitaStress/data")
     results_base_path: Path = Path("/Users/jithuazeez/Documents/Msc/Dissertation/experiments")
     
     # Window parameters
