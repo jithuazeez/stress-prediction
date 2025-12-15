@@ -1,0 +1,141 @@
+# Base configuration for VitaStress stress prediction
+
+# Data paths
+data:
+  vitastress_path: "/Users/jithuazeez/Documents/Msc/Dissertation/Datasets/VitaStress/data"
+  output_dir: "/Users/jithuazeez/Documents/Msc/Dissertation"
+  features_file: "vitastress_features_{window_size}s.csv"
+
+# Windowing parameters
+windowing:
+  window_size_seconds: 60  # Size of each window
+  overlap_seconds: 30      # Overlap between windows (50%)
+  prediction_horizon_minutes: 5  # Predict stress 5 minutes ahead
+  min_coverage: 0.8        # Minimum data coverage per window (80%)
+
+# Feature extraction
+features:
+  resample_frequency: "1S"  # Resample all signals to 1Hz
+  interpolation_method: "linear"
+  max_interpolation_gap: 5  # Max seconds to interpolate
+  
+  # HRV parameters
+  hrv:
+    min_rr_ms: 300
+    max_rr_ms: 2000
+    min_intervals_per_window: 10
+  
+  # PPG parameters
+  ppg:
+    highpass_cutoff: 0.05  # Hz
+    lowpass_cutoff: 8.0    # Hz
+    filter_order: 4
+  
+  # Respiratory rate parameters
+  respiratory:
+    min_rate_bpm: 8
+    max_rate_bpm: 30
+    smoothing_window: 10  # seconds
+
+# Labels
+labels:
+  stress_label: 1
+  no_stress_label: 0
+  exclude_transitions: true
+  transition_buffer_minutes: 2  # Exclude 2 min around transitions
+
+# Training
+training:
+  test_size: 0.2
+  validation_split: 0.2
+  random_seed: 42
+  cross_validation: "LOSO"  # Leave-One-Subject-Out
+  
+  # Class balancing
+  handle_imbalance: true
+  balancing_method: "class_weights"  # or "oversample", "undersample"
+
+# Models
+models:
+  # Classical ML
+  logistic_regression:
+    C: 1.0
+    max_iter: 1000
+    class_weight: "balanced"
+  
+  random_forest:
+    n_estimators: 100
+    max_depth: 10
+    min_samples_split: 5
+    class_weight: "balanced"
+  
+  xgboost:
+    n_estimators: 100
+    max_depth: 6
+    learning_rate: 0.1
+    scale_pos_weight: null  # Calculated from data
+  
+  # Deep learning
+  lstm:
+    hidden_size: 128
+    num_layers: 2
+    dropout: 0.3
+    bidirectional: true
+    learning_rate: 0.001
+    batch_size: 32
+    epochs: 50
+  
+  gru:
+    hidden_size: 128
+    num_layers: 2
+    dropout: 0.3
+    bidirectional: true
+    learning_rate: 0.001
+    batch_size: 32
+    epochs: 50
+  
+  transformer:
+    d_model: 256
+    n_layers: 4
+    n_heads: 4
+    d_ff: 1024
+    dropout: 0.1
+    learning_rate: 0.001
+    batch_size: 32
+    epochs: 50
+
+# Evaluation metrics
+evaluation:
+  metrics:
+    - "auroc"
+    - "pr_auc"
+    - "precision"
+    - "recall"
+    - "f1"
+    - "accuracy"
+  
+  # Operational metrics
+  false_alarm_rate_threshold: 0.1  # Max 10% false alarms
+  min_recall: 0.7  # Detect at least 70% of stress events
+  
+  # Calibration
+  calibration_bins: 10
+
+# Logging
+logging:
+  level: "INFO"
+  save_logs: true
+  log_dir: "logs"
+  
+# Reproducibility
+reproducibility:
+  seed: 42
+  deterministic: true
+
+
+
+
+
+
+
+

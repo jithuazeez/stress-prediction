@@ -1,0 +1,434 @@
+---
+description: general information and best practices about the project
+alwaysApply: false
+---
+# Cursor Rules for VitaStress Stress Prediction Project
+
+## Project Overview
+This is a research project for predicting stress/anxiety 5-10 minutes ahead using multimodal physiological signals from the VitaStress wearable dataset. The project investigates optimal window sizes (RQ1), feature importance (RQ2), and model architectures (RQ3) for proactive stress detection.
+
+---
+
+## Code Style & Quality [[memory:4489257]]
+
+### General Principles
+- **Prioritize readability over cleverness:** Code should be self-documenting and easy to understand
+- **Keep functions short and focused:** Each function should do one thing well
+- **Use descriptive variable names:** Avoid abbreviations unless widely recognized (e.g., HR, HRV, EDA, PPG)
+- **Add docstrings to all functions and classes:** Use NumPy-style docstrings with Args, Returns, Examples
+- **Type hints are mandatory:** All function signatures must include type hints
+
+### Python Standards
+- Follow PEP 8 style guide
+- Maximum line length: 100 characters
+- Use double quotes for strings
+- Use f-strings for string formatting (not .format() or %)
+- Use pathlib.Path for file operations (not os.path)
+
+### Example Function Format
+```python
+def extract_hrv_features(rr_intervals: np.ndarray, sampling_rate: float = 4.0) -> Dict[str, float]:
+    """
+    Extract time-domain HRV features from RR intervals.
+    
+    Args:
+        rr_intervals: Array of RR intervals in milliseconds, shape (n_intervals,)
+        sampling_rate: Sampling rate of the RR interval signal in Hz
+    
+    Returns:
+        Dictionary with HRV feature names as keys and computed values as floats
+        
+    Example:
+        >>> rr_intervals = np.array([800, 820, 810, 805, 815])
+        >>> features = extract_hrv_features(rr_intervals)
+        >>> print(features['RMSSD'])
+    """
+    # Function implementation
+    pass
+```
+
+---
+
+## Project Structure
+
+### Directory Layout
+```
+.
+├── Datasets/VitaStress/data/          # Raw VitaStress data (21 subjects)
+├── vitastress_draft.ipynb             # EDA & prototyping notebook
+├── src/                               # Production-quality pipeline code
+│   ├── data/
+│   │   ├── vitastress_loader.py       # Data loading for all modalities
+│   │   └── preprocessing.py           # Cleaning, normalization, artifact handling
+│   ├── features/
+│   │   ├── hrv_features.py            # HRV: RMSSD, SDNN, pNN50, LF/HF
+│   │   ├── eda_features.py            # EDA: tonic/phasic, SCR count, slope
+│   │   ├── respiratory_features.py    # Respiration rate, variability
+│   │   ├── activity_features.py       # Movement, step count, intensity
+│   │   ├── hr_features.py             # Heart rate statistics
+│   │   ├── temperature_features.py    # Skin temperature features
+│   │   └── ppg_processing.py          # PPG signal processing
+│   ├── models/
+│   │   ├── baselines.py               # LogReg, RF, XGBoost
+│   │   ├── rnn.py                     # LSTM/GRU architectures
+│   │   └── transformer.py             # Self-attention models
+│   ├── train.py                       # Training loops
+│   ├── evaluate.py                    # Metrics, plots, evaluation
+│   └── utils.py                       # Helper functions
+├── configs/                           # YAML configs for experiments
+├── reports/                           # Results, figures, analysis
+└── project_descritption.md            # This file - project roadmap
+```
+
+### File Responsibilities
+- **Notebooks:** Exploratory work, visualization, prototyping ONLY
+- **src/:** Production code that will be used for final experiments
+- **configs/:** YAML files for hyperparameters, window sizes, feature sets
+- **reports/:** Generated outputs (tables, plots, markdown reports)
+
+---
+
+## Data Handling Best Practices
+
+### Critical Data Quality Issues (From EDA)
+
+**1. Zeros Are Missing Values (Not Actual Zeros!)**
+- Physiological features cannot be zero: HR, RR, SpO2, systolic/diastolic BP, bioimpedance
+- **Always replace zeros with np.nan** for these features before analysis
+- See `vitastress_draft.ipynb` cells 39 (activity) and 59 (bioz) for reference
+
+**2. Bioimpedance Outliers**
+- Normal range: 500-2000 Ω (up to 5000 Ω max)
+- Dataset contains extreme outliers up to 10,000,000 Ω (sensor errors)
+- **Filter to 100-5000 Ω** before feature extraction
+
+**3. High Missingness Rates**
+- Activity HR: 65.6% missing
+- Activity RR: 83.9% missing
+- Activity SpO2: 81.4% missing
+- Activity BP: 83-95% missing
+- Bioimpedance: 50.2% zeros (after outlier removal, likely higher)
+- **Implication:** Cannot rely solely on activity-derived features; use accelerometer, PPG, EDA as primary sources
+
+**4. Quality Flags**
+- Activity data includes quality indicators: `bpm_q`, `resp_q`, `spo2_q`, `wearing`
+- **Always check quality flags** when using activity-derived features
+- Values with quality=0 should be treated as unreliable
+
+### Data Loading Rules
+- Use `pd.to_datetime(format='ISO8601')` for all timestamp columns
+- Always extract `subject_id` from folder names when combining subjects
+- Preserve original data in separate DataFrames (never modify in place)
+- Create `*_analysis` or `*_cleaned` copies for zero-as-missing corrections
+
+### Feature Extraction Windows
+- **Window size:** 120 seconds (based on cognitive load literature)
+- **Overlap:** 0% for predictive tasks (each window is independent)
+- **Prediction horizon:** 5-10 minutes ahead (labels shifted forward)
+- **Temporal metadata:** Always include `window_start_time`, `window_end_time`, `window_center_time`
+- **Subject tracking:** Always include `subject_id` column
+
+---
+
+## Machine Learning Workflow
+
+### Data Splitting Strategy
+- **Subject-wise split:** Never split within-subject (data leakage!)
+- **Temporal ordering:** Train on early periods, test on late periods
+- **Leave-One-Subject-Out (LOSO):** For generalization testing
+- **No overlap:** Ensure prediction windows don't overlap with label periods
+
+### Label Alignment
+- Labels come from `annotation.csv` files (stress induction tasks)
+- **Positive samples:** Windows 5-10 min before stress task onset
+- **Negative samples:** Confirmed low-stress periods (e.g., baseline, rest)
+- **Exclude ambiguous periods:** During task, immediate post-task recovery
+- See `vitastress_paper.md` for task definitions (cognitive, physical, public speaking)
+
+### Class Imbalance Handling
+- Use class weights in loss functions (sklearn: `class_weight='balanced'`)
+- Consider focal loss for deep learning models
+- Evaluate with **PR-AUC** (not just AUROC) due to imbalance
+- Report precision@recall and recall@precision for operational thresholds
+
+### Evaluation Metrics (Priority Order)
+1. **PR-AUC** (most important for imbalanced data)
+2. **AUROC** (overall discriminative ability)
+3. **Recall @ 90% precision** (minimize false alarms)
+4. **Precision @ 80% recall** (ensure most events detected)
+5. **False alarms per hour** (user trust metric)
+6. **Time-to-warning** (average lead time)
+
+---
+
+## Specific Coding Guidelines
+
+### Feature Extraction
+- **Return type:** Always return `Dict[str, float]` or `pd.DataFrame`
+- **Handle edge cases:** Empty arrays, NaN values, insufficient data
+- **Fail gracefully:** Return np.nan for features that can't be computed
+- **Document units:** Specify units in docstrings (ms, Hz, Ω, °C, etc.)
+
+```python
+def extract_eda_features(eda_signal: np.ndarray, sampling_rate: float) -> Dict[str, float]:
+    """
+    Extract EDA features (tonic, phasic, SCR).
+    
+    Args:
+        eda_signal: EDA/GSR values in microsiemens (μS), shape (n_samples,)
+        sampling_rate: Sampling rate in Hz
+    
+    Returns:
+        Dictionary with keys: 'eda_mean', 'eda_std', 'scr_count', 'scr_amplitude_mean', etc.
+    """
+    if len(eda_signal) == 0 or np.all(np.isnan(eda_signal)):
+        return {f"eda_{key}": np.nan for key in ['mean', 'std', 'scr_count']}
+    
+    # Implementation
+    pass
+```
+
+### Model Implementation
+- **Inherit from base classes:** Use sklearn's `BaseEstimator` and `ClassifierMixin`
+- **Save checkpoints:** After each epoch for deep learning models
+- **Log hyperparameters:** Use MLflow, Weights & Biases, or simple JSON
+- **Reproducibility:** Set random seeds at the start of training scripts
+
+### Preprocessing
+- **Per-subject normalization:** z-score normalization using subject-specific mean/std
+- **Handle missing data:** Document strategy (interpolation, masking, or dropping)
+- **Artifact detection:** Flag windows with excessive motion (from accelerometer magnitude)
+- **Quality thresholds:** Exclude windows with >30% missing data
+
+---
+
+## Warning Suppression
+
+### For TSFEL Feature Extraction
+Use context manager to suppress expected warnings:
+
+```python
+import warnings
+import numpy as np
+
+# Suppress RuntimeWarnings for kurtosis (expected with low-variance signals)
+with warnings.catch_warnings():
+    warnings.filterwarnings('ignore', category=RuntimeWarning)
+    features = tsfel.time_series_features_extractor(cfg, data, fs=sampling_rate)
+```
+
+### For Numerical Operations
+```python
+np.seterr(divide='ignore', invalid='ignore')  # Suppress divide-by-zero warnings
+```
+
+---
+
+## Notebook vs. Production Code
+
+### When to Use Notebooks (`vitastress_draft.ipynb`)
+- Exploratory data analysis (EDA)
+- Visualizations and distributions
+- Prototyping feature extraction logic
+- Quick hypothesis testing
+- Generating figures for reports
+
+### When to Use Production Code (`src/`)
+- Final feature extraction pipeline
+- Model training and evaluation
+- Reproducible experiments (RQ1, RQ2, RQ3)
+- Batch processing of all subjects
+- Hyperparameter tuning
+- Cross-validation loops
+
+### Transition Strategy
+1. Prototype in notebook → verify correctness with visualizations
+2. Refactor into modular functions in `src/`
+3. Add comprehensive docstrings and type hints
+4. Add unit tests if time permits
+5. Use `src/` modules for all final experiments
+
+---
+
+## Research Questions Checklist
+
+### RQ1: Window Size Optimization
+- [ ] Systematically test: 30s, 60s, 90s, 120s, 150s, 180s
+- [ ] Plot accuracy vs. latency trade-off curves
+- [ ] Report time-to-warning for each window size
+- [ ] Use same features across all window sizes for fair comparison
+
+### RQ2: Feature Importance
+- [ ] Permutation importance on best-performing model
+- [ ] SHAP values for tree-based models (XGBoost)
+- [ ] Attention weights for Transformer models
+- [ ] Ablation studies: remove modality groups systematically
+  - Without EDA
+  - Without HR/HRV
+  - Without accelerometer
+  - Without respiration
+  - Activity features only (baseline)
+
+### RQ3: Model Architecture Comparison
+- [ ] Train all architectures with identical preprocessing
+- [ ] Compare: LogReg, RF, XGBoost, 1D CNN, LSTM, GRU, Transformer
+- [ ] Report training time, inference speed, model size
+- [ ] Statistical significance tests (McNemar's test, paired t-test)
+- [ ] Identify best architecture for deployment
+
+---
+
+## Common Pitfalls to Avoid
+
+### 🚫 Data Leakage
+- Never normalize across all data before splitting
+- Never use test subject data in any way during training
+- Ensure windows don't span across train/test boundaries
+- Don't use future labels to inform feature extraction
+
+### 🚫 Temporal Errors
+- Don't forget to shift labels forward for prediction horizon
+- Verify timestamp alignment across modalities (use `pd.merge_asof`)
+- Check for clock drift or timestamp mismatches
+
+### 🚫 Missing Data Assumptions
+- Don't assume zeros are valid measurements for physiological signals
+- Don't impute missing data without documenting the strategy
+- Don't ignore quality flags in activity data
+
+### 🚫 Performance Metrics
+- Don't rely solely on accuracy (data is imbalanced!)
+- Don't report AUROC without PR-AUC
+- Don't forget to report false alarm rates (critical for user trust)
+
+### 🚫 Code Quality
+- Don't copy-paste code (refactor into functions)
+- Don't leave magic numbers unexplained (use named constants)
+- Don't skip docstrings ("I'll add them later" = never happens)
+- Don't commit without testing on at least 2 subjects
+
+---
+
+## Git Workflow
+
+### Commit Message Format
+```
+<type>: <short description>
+
+<detailed explanation if needed>
+
+Examples:
+feat: Add EDA feature extraction with tonic/phasic decomposition
+fix: Correct zero-as-missing handling for blood pressure
+docs: Update project description with bioimpedance findings
+refactor: Simplify window extraction logic in vitastress_loader
+```
+
+### What to Commit
+- ✅ Source code in `src/`
+- ✅ Notebooks with outputs cleared (unless showing important results)
+- ✅ Config files (YAML)
+- ✅ Documentation (markdown files)
+- ✅ Requirements files
+
+### What NOT to Commit
+- ❌ Raw dataset files (too large)
+- ❌ Intermediate CSV files (regenerate from scripts)
+- ❌ Model checkpoints (unless final best model)
+- ❌ `__pycache__/` or `.pyc` files
+- ❌ Large figures (>1MB)
+
+---
+
+## Progress Tracking
+
+### Current Status (November 2024)
+- ✅ M1: EDA completed for accelerometer, activity, bioimpedance
+- 🔄 M2: Feature engineering in progress (accelerometer done, PPG/EDA pending)
+- ⏳ M3: Baseline models (structure ready, training pending)
+- ⏳ M4-M6: Deep learning models and RQ investigations (planned)
+
+### Daily Workflow
+1. Start day: Check project_descritption.md for current priorities
+2. Work in notebook for prototyping/exploration
+3. Refactor validated code into `src/` modules
+4. Update progress in project_descritption.md
+5. Commit with descriptive messages
+
+---
+
+## Reference Files
+
+### Key Documents
+- `vitastress_paper.md` — Original VitaStress dataset paper (ground truth for modalities, tasks)
+- `timewindow-paper.md` — Optimal window sizes for cognitive load prediction
+- `project_descritption.md` — Project roadmap, milestones, research questions
+- `vitastress_draft.ipynb` — All EDA work, prototyping, current progress
+
+### Key Datasets (Generated)
+- `vitastress_acc_features.csv` — Accelerometer features (120s windows, TSFEL)
+- `vitastress_acc_combined.csv` — Raw combined accelerometer data (all subjects)
+- `vitastress_activity_combined.csv` — Combined activity data (original)
+- `vitastress_activity_cleaned.csv` — Activity data with zeros as NaN
+- `vitastress_bioz_combined.csv` — Combined bioimpedance data (original)
+- `vitastress_bioz_cleaned.csv` — Bioimpedance with zeros as NaN
+
+---
+
+## Questions to Ask Before Coding
+
+1. **Is this exploratory or production?** → Notebook vs. `src/`
+2. **What are the input/output types?** → Add type hints
+3. **How do I handle missing data?** → Document strategy
+4. **What are the edge cases?** → Handle gracefully with np.nan
+5. **Will this cause data leakage?** → Check temporal boundaries
+6. **Is this readable to future me?** → Add docstring and comments
+
+---
+
+## When Stuck
+
+### Data Quality Issues
+- Check `vitastress_draft.ipynb` for similar examples
+- Verify zero-as-missing corrections are applied
+- Check quality flags (`bpm_q`, `resp_q`, etc.)
+- Visualize distributions (outliers often obvious in plots)
+
+### Feature Extraction Issues
+- Start with simple features (mean, std) before complex ones
+- Test on single subject first, then scale to all subjects
+- Use TSFEL documentation: https://tsfel.readthedocs.io/
+- Check for NaN propagation (one NaN → all features NaN)
+
+### Model Training Issues
+- Start with smallest model (LogReg) to verify pipeline
+- Check label distribution (extreme imbalance?)
+- Verify train/test split (no data leakage?)
+- Monitor training curves (loss, accuracy over epochs)
+
+### Performance Issues
+- Use batching for large datasets
+- Cache intermediate results (e.g., resampled signals)
+- Profile code to identify bottlenecks
+- Consider downsampling for prototyping (test on 5 subjects first)
+
+---
+
+## Contact & Resources
+
+### External Resources
+- TSFEL library: https://tsfel.readthedocs.io/
+- NeuroKit2 (HRV, EDA): https://neuropsychology.github.io/NeuroKit/
+- Scikit-learn: https://scikit-learn.org/
+- PyTorch Lightning: https://lightning.ai/docs/pytorch/
+
+### Project-Specific Knowledge
+- All EDA findings documented in `vitastress_draft.ipynb`
+- Feature extraction examples in notebook cells 18-28 (accelerometer)
+- Missing data analysis in cells 39 (activity), 59 (bioz)
+- Data quality summaries in cells 49-50 (activity), 72-73 (bioz)
+
+---
+
+**Remember:** Prioritize readability, document everything, and avoid data leakage!
+
