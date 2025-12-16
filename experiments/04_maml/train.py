@@ -36,7 +36,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from shared.raw_loader import load_raw_signals, get_all_subjects, get_experiment_time_range
 from shared.alignment import align_to_1hz
-from shared.windowing import create_labeled_windows, parse_stress_events
+from shared.windowing import create_labeled_windows, parse_stress_events, compute_subject_stats
 from shared.evaluation import (
     evaluate_predictions, aggregate_fold_metrics,
     save_results, save_predictions, plot_results,
@@ -272,6 +272,9 @@ def load_all_windows(config: Config, logger) -> Dict[str, List[Dict]]:
         if aligned is None or len(aligned) == 0:
             continue
         
+        # Compute subject-level statistics for subject-wise normalization
+        subject_stats = compute_subject_stats(aligned)
+        
         event_info = parse_stress_events(
             signals.get("annotation"),
             config.stress_start_events,
@@ -285,7 +288,8 @@ def load_all_windows(config: Config, logger) -> Dict[str, List[Dict]]:
             window_size_sec=config.window_size_sec,
             overlap_ratio=config.overlap_ratio,
             horizons_minutes=config.horizons_minutes,
-            skip_first_minutes=config.skip_first_minutes
+            skip_first_minutes=config.skip_first_minutes,
+            subject_stats=subject_stats  # Pass subject stats for normalization
         )
         
         if windows:

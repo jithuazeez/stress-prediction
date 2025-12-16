@@ -28,7 +28,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from shared.raw_loader import load_raw_signals, get_all_subjects, get_experiment_time_range
 from shared.alignment import align_to_1hz
-from shared.windowing import create_labeled_windows, parse_stress_events
+from shared.windowing import create_labeled_windows, parse_stress_events, compute_subject_stats
 from shared.evaluation import (
     evaluate_predictions, aggregate_fold_metrics,
     save_results, save_predictions, plot_results,
@@ -75,6 +75,10 @@ def load_all_windows(config: Config, logger) -> Dict[str, List[Dict]]:
         if aligned is None or len(aligned) == 0:
             continue
         
+        # Compute subject-level statistics for subject-wise normalization
+        # These stats are computed on the ENTIRE subject's data before windowing
+        subject_stats = compute_subject_stats(aligned)
+        
         event_info = parse_stress_events(
             signals.get("annotation"),
             config.stress_start_events,
@@ -88,7 +92,8 @@ def load_all_windows(config: Config, logger) -> Dict[str, List[Dict]]:
             window_size_sec=config.window_size_sec,
             overlap_ratio=config.overlap_ratio,
             horizons_minutes=config.horizons_minutes,
-            skip_first_minutes=config.skip_first_minutes
+            skip_first_minutes=config.skip_first_minutes,
+            subject_stats=subject_stats  # Pass subject stats for normalization
         )
         
         if windows:
@@ -338,6 +343,10 @@ def loso_cross_validation(windows_by_subject: Dict[str, List[Dict]],
     UNFREEZE_LAST_N_BLOCKS = 2
     logger.info(f"  Backbone: Frozen with last {UNFREEZE_LAST_N_BLOCKS} transformer blocks unfrozen")
     
+    # Normalization mode for dataset
+    NORMALIZATION_MODE = "subject"  # "subject" or "window"
+    logger.info(f"  Normalization: {NORMALIZATION_MODE}-wise z-score normalization")
+    
     # Store hyperparameters
     hyperparameters = {
         'n_epochs': n_epochs,
@@ -348,6 +357,7 @@ def loso_cross_validation(windows_by_subject: Dict[str, List[Dict]],
         'overlap_ratio': config.overlap_ratio,
         'prediction_horizons': config.horizons_minutes,
         'target_label': config.target_label,
+        'normalization_mode': NORMALIZATION_MODE,
         'freeze_backbone': True,
         'unfreeze_last_n_blocks': UNFREEZE_LAST_N_BLOCKS,
         'optimizer': 'Adam',
@@ -379,8 +389,14 @@ def loso_cross_validation(windows_by_subject: Dict[str, List[Dict]],
         if len(train_windows) == 0 or len(test_windows) == 0:
             continue
         
-        train_dataset = VitaStressMOMENTDataset(train_windows, config.target_label)
-        test_dataset = VitaStressMOMENTDataset(test_windows, config.target_label)
+        train_dataset = VitaStressMOMENTDataset(
+            train_windows, config.target_label, 
+            normalization_mode=NORMALIZATION_MODE
+        )
+        test_dataset = VitaStressMOMENTDataset(
+            test_windows, config.target_label, 
+            normalization_mode=NORMALIZATION_MODE
+        )
         
         if len(train_dataset) == 0 or len(test_dataset) == 0:
             continue

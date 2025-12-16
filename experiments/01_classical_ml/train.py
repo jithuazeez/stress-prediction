@@ -29,7 +29,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 
 from shared.raw_loader import load_raw_signals, get_all_subjects, get_experiment_time_range
 from shared.alignment import align_to_1hz
-from shared.windowing import create_labeled_windows, parse_stress_events
+from shared.windowing import create_labeled_windows, parse_stress_events, compute_subject_stats
 from shared.evaluation import (
     evaluate_predictions, aggregate_fold_metrics, 
     save_results, save_predictions, plot_results,
@@ -81,6 +81,9 @@ def process_subject(subject_folder: Path,
         logger.warning(f"Subject {subject_id[:8]}...: No aligned data")
         return None, subject_id
     
+    # Compute subject-level statistics for potential subject-wise normalization
+    subject_stats = compute_subject_stats(aligned)
+    
     # Parse events
     event_info = parse_stress_events(
         signals.get("annotation"),
@@ -89,14 +92,15 @@ def process_subject(subject_folder: Path,
         config.baseline_events
     )
     
-    # Create windows
+    # Create windows with subject stats
     windows = create_labeled_windows(
         aligned,
         event_info,
         window_size_sec=config.window_size_sec,
         overlap_ratio=config.overlap_ratio,
         horizons_minutes=config.horizons_minutes,
-        skip_first_minutes=config.skip_first_minutes
+        skip_first_minutes=config.skip_first_minutes,
+        subject_stats=subject_stats  # Pass subject stats for normalization
     )
     
     if not windows:

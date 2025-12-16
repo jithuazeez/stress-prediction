@@ -15,6 +15,9 @@ from typing import Dict, List, Optional, Tuple
 import pandas as pd
 import numpy as np
 from datetime import timedelta
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 def parse_stress_events(annotation_df: Optional[pd.DataFrame],
@@ -234,12 +237,61 @@ def get_window_context(window_center: pd.Timestamp,
     return "unknown"
 
 
+def compute_subject_stats(aligned_df: pd.DataFrame,
+                          channels: List[str] = None) -> Dict[str, Dict[str, float]]:
+    """
+    Compute per-subject statistics for subject-wise normalization.
+    
+    These statistics should be computed on the ENTIRE subject's data
+    (before windowing) to enable proper subject-wise z-score normalization.
+    
+    Args:
+        aligned_df: DataFrame with aligned 1Hz data for ONE subject
+        channels: List of channel names to compute stats for.
+                  If None, uses default channels.
+    
+    Returns:
+        Dictionary mapping channel names to their mean and std:
+        {
+            "acc_magnitude": {"mean": 1.0, "std": 0.1},
+            "skin_temp": {"mean": 32.5, "std": 1.2},
+            ...
+        }
+    """
+    if channels is None:
+        # Default channels used across experiments
+        channels = ["acc_magnitude", "skin_temp", "hr_bpm", "eda_stress_skin", "ppg_mean"]
+    
+    stats = {}
+    
+    for channel in channels:
+        if channel in aligned_df.columns:
+            values = aligned_df[channel].values
+            # Remove NaN for stats computation
+            valid_values = values[~np.isnan(values)]
+            
+            if len(valid_values) > 0:
+                stats[channel] = {
+                    "mean": float(np.mean(valid_values)),
+                    "std": float(np.std(valid_values))
+                }
+            else:
+                # No valid data - use default (0, 1) to avoid division by zero
+                stats[channel] = {"mean": 0.0, "std": 1.0}
+        else:
+            # Channel not in data - use default
+            stats[channel] = {"mean": 0.0, "std": 1.0}
+    
+    return stats
+
+
 def create_labeled_windows(aligned_df: pd.DataFrame,
                            event_info: Dict,
                            window_size_sec: int = 120,
                            overlap_ratio: float = 0.0,
                            horizons_minutes: List[int] = [3, 5, 10],
-                           skip_first_minutes: int = 5) -> List[Dict]:
+                           skip_first_minutes: int = 5,
+                           subject_stats: Dict[str, Dict[str, float]] = None) -> List[Dict]:
     """
     Create labeled windows from aligned data.
     
@@ -257,9 +309,12 @@ def create_labeled_windows(aligned_df: pd.DataFrame,
         overlap_ratio: Window overlap ratio (default 0.0)
         horizons_minutes: List of prediction horizons in minutes
         skip_first_minutes: Minutes to skip at the start
+        subject_stats: Pre-computed subject-level statistics for normalization.
+                       If provided, will be attached to each window for subject-wise normalization.
+                       Should be computed using compute_subject_stats() on the full aligned data.
     
     Returns:
-        List of window dictionaries
+        List of window dictionaries with 'subject_stats' key if provided
     """
     windows = []
     
@@ -341,6 +396,10 @@ def create_labeled_windows(aligned_df: pd.DataFrame,
             **labels
         }
         
+        # Add subject-level statistics for normalization if provided
+        if subject_stats is not None:
+            window_dict["subject_stats"] = subject_stats
+        
         windows.append(window_dict)
         window_id += 1
         current_start = current_start + timedelta(seconds=step_size)
@@ -367,6 +426,13 @@ if __name__ == "__main__":
         start, end = get_experiment_time_range(signals)
         aligned = align_to_1hz(signals, start, end)
         
+        # Compute subject-level statistics for normalization
+        subject_stats = compute_subject_stats(aligned)
+        print(f"\nSubject-wise statistics computed:")
+        for channel, stats in subject_stats.items():
+            if stats["std"] != 1.0:  # Only print channels with real data
+                print(f"  {channel}: mean={stats['mean']:.3f}, std={stats['std']:.3f}")
+        
         # Parse events with emotional/physical separation
         event_info = parse_stress_events(
             signals.get("annotation"),
@@ -382,12 +448,13 @@ if __name__ == "__main__":
         print(f"\nEMOTIONAL stress onsets (labeled as 1): {len(event_info['emotional_stress_onsets'])}")
         print(f"PHYSICAL stress onsets (NOT labeled): {len(event_info['physical_stress_onsets'])}")
         
-        # Create windows
+        # Create windows with subject stats
         windows = create_labeled_windows(
             aligned,
             event_info,
             window_size_sec=DEFAULT_CONFIG.window_size_sec,
-            skip_first_minutes=DEFAULT_CONFIG.skip_first_minutes
+            skip_first_minutes=DEFAULT_CONFIG.skip_first_minutes,
+            subject_stats=subject_stats  # Pass subject stats for normalization
         )
         
         print(f"\nCreated {len(windows)} windows")
@@ -407,3 +474,7 @@ if __name__ == "__main__":
         for ctx, count in sorted(contexts.items()):
             is_stress = "STRESS" if "emotional" in ctx else "no stress" if "physical" in ctx else "-"
             print(f"  {ctx}: {count} [{is_stress}]")
+        
+        # Verify subject stats are in windows
+        if windows and "subject_stats" in windows[0]:
+            print(f"\n✓ Subject-wise normalization stats attached to all {len(windows)} windows")

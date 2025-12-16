@@ -55,7 +55,8 @@ class VitaStressMOMENTDataset(Dataset):
                  windows: List[Dict],
                  label_col: str = "label_5min",
                  seq_len: int = 512,
-                 normalize: bool = True):
+                 normalize: bool = True,
+                 normalization_mode: str = "subject"):
         """
         Initialize dataset.
         
@@ -64,11 +65,15 @@ class VitaStressMOMENTDataset(Dataset):
             label_col: Label column to use
             seq_len: Target sequence length (MOMENT uses 512)
             normalize: Whether to normalize each channel
+            normalization_mode: How to normalize. Options:
+                - "subject": Use subject-level mean/std (recommended for physiological data)
+                - "window": Use per-window mean/std (old behavior)
         """
         self.windows = windows
         self.label_col = label_col
         self.seq_len = seq_len
         self.normalize = normalize
+        self.normalization_mode = normalization_mode
         self.n_channels = len(self.CHANNELS)
         
         # Pre-process all windows
@@ -87,8 +92,13 @@ class VitaStressMOMENTDataset(Dataset):
         """
         Prepare a single window for MOMENT.
         
+        Supports two normalization modes:
+        - "subject": Uses subject-level mean/std from window["subject_stats"]
+        - "window": Uses per-window mean/std (old behavior)
+        
         Args:
             window: Window dictionary with 'window_data' DataFrame
+                   and optionally 'subject_stats' for subject-wise normalization
         
         Returns:
             Array of shape (n_channels, seq_len) or None if invalid
@@ -96,6 +106,10 @@ class VitaStressMOMENTDataset(Dataset):
         df = window.get("window_data")
         if df is None or len(df) == 0:
             return None
+        
+        # Get subject-level stats if available and mode is "subject"
+        subject_stats = window.get("subject_stats", {})
+        use_subject_stats = (self.normalization_mode == "subject" and len(subject_stats) > 0)
         
         channels = []
         
@@ -124,8 +138,15 @@ class VitaStressMOMENTDataset(Dataset):
             
             # Normalize if requested
             if self.normalize:
-                mean = np.mean(values)
-                std = np.std(values)
+                if use_subject_stats and channel_name in subject_stats:
+                    # Subject-wise normalization (recommended)
+                    mean = subject_stats[channel_name]["mean"]
+                    std = subject_stats[channel_name]["std"]
+                else:
+                    # Fall back to per-window normalization
+                    mean = np.mean(values)
+                    std = np.std(values)
+                
                 if std > 0:
                     values = (values - mean) / std
                 else:
