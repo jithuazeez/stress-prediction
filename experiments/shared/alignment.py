@@ -18,10 +18,38 @@ import warnings
 warnings.filterwarnings("ignore")
 
 # Path to pre-extracted HR data (from HeartPy)
-HR_DATA_PATH = Path("/Users/jithuazeez/Documents/Msc/Dissertation/reports/hr_1hz_cleaned.csv")
+# Try multiple possible locations
+HR_DATA_PATHS = [
+    # Local development
+    Path("/Users/jithuazeez/Documents/Msc/Dissertation/reports/hr_1hz_cleaned.csv"),
+    Path("/Users/jithuazeez/Documents/Msc/Dissertation/reports/hr_1hz_from_ppg.csv"),
+   
+    # Relative paths
+    Path("reports/hr_1hz_cleaned.csv"),
+    Path("../reports/hr_1hz_cleaned.csv"),
+     # Kaggle paths (if you upload the HR data)
+    Path("/kaggle/input/hr-data-ppg/hr_1hz_from_ppg.csv"),
+]
 
 # Cache for HR data to avoid reloading
 _HR_DATA_CACHE = None
+_HR_DATA_PATH_FOUND = None
+
+
+def find_hr_data_path() -> Optional[Path]:
+    """Find the HR data file from possible locations."""
+    global _HR_DATA_PATH_FOUND
+    
+    if _HR_DATA_PATH_FOUND is not None:
+        return _HR_DATA_PATH_FOUND
+    
+    for path in HR_DATA_PATHS:
+        if path.exists():
+            _HR_DATA_PATH_FOUND = path
+            print(f"Found HR data at: {path}")
+            return path
+    
+    return None
 
 
 def load_hr_data() -> pd.DataFrame:
@@ -39,12 +67,21 @@ def load_hr_data() -> pd.DataFrame:
     if _HR_DATA_CACHE is not None:
         return _HR_DATA_CACHE
     
-    if not HR_DATA_PATH.exists():
-        print(f"Warning: HR data file not found at {HR_DATA_PATH}")
-        print("Please run the PPG HeartPy extraction in notebooks/data_quality_analysis.ipynb first")
+    hr_path = find_hr_data_path()
+    
+    if hr_path is None:
+        print("="*60)
+        print("WARNING: HR data file not found!")
+        print("Searched paths:")
+        for p in HR_DATA_PATHS:
+            print(f"  - {p}")
+        print("\nTo fix this:")
+        print("1. Run notebooks/data_quality_analysis.ipynb to generate hr_1hz_cleaned.csv")
+        print("2. For Kaggle: Upload hr_1hz_cleaned.csv as a dataset")
+        print("="*60)
         return pd.DataFrame()
     
-    hr_df = pd.read_csv(HR_DATA_PATH)
+    hr_df = pd.read_csv(hr_path)
     hr_df["timestamp"] = pd.to_datetime(hr_df["timestamp"])
     
     _HR_DATA_CACHE = hr_df
@@ -353,10 +390,11 @@ if __name__ == "__main__":
     from config import DEFAULT_CONFIG
     
     print("Testing signal alignment...")
-    print(f"HR data path: {HR_DATA_PATH}")
-    print(f"HR data exists: {HR_DATA_PATH.exists()}")
     
     # Check if HR data is available
+    hr_path = find_hr_data_path()
+    print(f"HR data path found: {hr_path}")
+    
     hr_df = load_hr_data()
     if len(hr_df) > 0:
         print(f"HR data loaded: {len(hr_df)} samples, {hr_df['subject_id'].nunique()} subjects")
