@@ -104,8 +104,10 @@ class Config:
     random_seed: int = 42
     
     # Number of channels for deep learning models
-    # PPG excluded: 1Hz downsampling destroys cardiac waveform
-    n_channels: int = 3  # acc_magnitude, skin_temp, eda_stress_skin
+    # HR from HeartPy replaces raw PPG (meaningful at 1Hz)
+    # EDA disabled due to low sampling rate (~0.017 Hz)
+    n_channels: int = 3  # acc_magnitude, skin_temp, hr_bpm
+    # n_channels: int = 3  # acc_magnitude, skin_temp, eda_stress_skin (EDA disabled)
     # n_channels: int = 4  # acc_magnitude, skin_temp, eda_stress_skin, ppg_mean (PPG disabled)
     
     def __post_init__(self):

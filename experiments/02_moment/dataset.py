@@ -7,10 +7,12 @@ MOMENT expects input shape: [batch, n_channels, seq_len] where seq_len = 512
 We use 3 channels:
 - acc_magnitude: Accelerometer magnitude
 - skin_temp: Skin temperature
-- eda_stress_skin: EDA/skin conductance
+- hr_bpm: Heart rate derived from PPG via HeartPy (at 1Hz)
 
-Note: PPG is excluded because downsampling from 64Hz to 1Hz destroys
-the cardiac waveform, making it useless for stress detection.
+Note: 
+- Raw PPG is excluded because downsampling from 64Hz to 1Hz destroys the cardiac waveform.
+  Instead, we use HR extracted via HeartPy at native rate, then interpolated to 1Hz.
+- EDA is disabled due to very low sampling rate (~0.017 Hz / 1 sample per minute).
 
 References:
 - https://github.com/moment-timeseries-foundation-model/moment
@@ -39,9 +41,15 @@ class VitaStressMOMENTDataset(Dataset):
     """
     
     # Channel names in order
-    # PPG excluded: 1Hz downsampling destroys cardiac waveform (64Hz -> 1Hz loses heartbeats)
-    CHANNELS = ["acc_magnitude", "skin_temp", "eda_stress_skin"]  # 3 channels
-    # CHANNELS = ["acc_magnitude", "skin_temp", "eda_stress_skin", "ppg_mean"]  # 4 channels (PPG disabled)
+    # HR from HeartPy replaces raw PPG (much more meaningful at 1Hz)
+    # EDA disabled due to low sampling rate (~0.017 Hz)
+    CHANNELS = ["acc_magnitude", "skin_temp", "hr_bpm"]  # 3 channels
+    
+    # DISABLED: EDA has too low sampling rate (~1 sample/minute)
+    # CHANNELS = ["acc_magnitude", "skin_temp", "eda_stress_skin"]  # EDA disabled
+    
+    # DISABLED: Raw PPG downsampling destroys cardiac waveform
+    # CHANNELS = ["acc_magnitude", "skin_temp", "eda_stress_skin", "ppg_mean"]  # PPG disabled
     
     def __init__(self, 
                  windows: List[Dict],
@@ -201,8 +209,9 @@ if __name__ == "__main__":
             "timestamp": pd.date_range("2024-01-01", periods=120, freq="1S"),
             "acc_magnitude": np.random.normal(1, 0.1, 120),
             "skin_temp": np.random.normal(32, 1, 120),
-            "eda_stress_skin": np.random.normal(2, 0.5, 120),
-            "ppg_mean": np.random.normal(30000, 1000, 120),
+            "hr_bpm": np.random.normal(75, 10, 120),  # HR from HeartPy
+            # "eda_stress_skin": np.random.normal(2, 0.5, 120),  # EDA disabled
+            # "ppg_mean": np.random.normal(30000, 1000, 120),  # Raw PPG disabled
         })
         
         dummy_windows.append({

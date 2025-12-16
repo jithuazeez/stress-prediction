@@ -2,9 +2,13 @@
 Time alignment utilities for multimodal signal data.
 
 Aligns all modalities to a common 1Hz time grid using scipy for resampling.
+
+UPDATED: Now uses HR derived from PPG (via HeartPy) instead of raw PPG.
+EDA is commented out due to very low sampling rate (~0.017 Hz).
 """
 
 from typing import Dict, Optional
+from pathlib import Path
 import pandas as pd
 import numpy as np
 from scipy import signal as scipy_signal
@@ -12,6 +16,63 @@ from scipy.interpolate import interp1d
 import warnings
 
 warnings.filterwarnings("ignore")
+
+# Path to pre-extracted HR data (from HeartPy)
+HR_DATA_PATH = Path("/Users/jithuazeez/Documents/Msc/Dissertation/reports/hr_1hz_cleaned.csv")
+
+# Cache for HR data to avoid reloading
+_HR_DATA_CACHE = None
+
+
+def load_hr_data() -> pd.DataFrame:
+    """
+    Load pre-extracted HR data from HeartPy processing.
+    
+    This HR was extracted from raw PPG using HeartPy and interpolated to 1Hz.
+    Much more meaningful than downsampling raw PPG from 64Hz to 1Hz.
+    
+    Returns:
+        DataFrame with columns: timestamp, subject_id, hr_bpm, rmssd, hr_jump, artifact_flag
+    """
+    global _HR_DATA_CACHE
+    
+    if _HR_DATA_CACHE is not None:
+        return _HR_DATA_CACHE
+    
+    if not HR_DATA_PATH.exists():
+        print(f"Warning: HR data file not found at {HR_DATA_PATH}")
+        print("Please run the PPG HeartPy extraction in notebooks/data_quality_analysis.ipynb first")
+        return pd.DataFrame()
+    
+    hr_df = pd.read_csv(HR_DATA_PATH)
+    hr_df["timestamp"] = pd.to_datetime(hr_df["timestamp"])
+    
+    _HR_DATA_CACHE = hr_df
+    return hr_df
+
+
+def get_hr_for_subject(subject_id: str) -> Optional[pd.DataFrame]:
+    """
+    Get HR data for a specific subject.
+    
+    Args:
+        subject_id: Subject ID (without 'id_' prefix)
+    
+    Returns:
+        DataFrame with timestamp and hr_bpm columns, or None if not found
+    """
+    hr_df = load_hr_data()
+    
+    if hr_df is None or len(hr_df) == 0:
+        return None
+    
+    # Filter for this subject
+    subject_hr = hr_df[hr_df["subject_id"] == subject_id].copy()
+    
+    if len(subject_hr) == 0:
+        return None
+    
+    return subject_hr
 
 
 def create_time_grid(start_time: pd.Timestamp, 
@@ -192,8 +253,8 @@ def align_to_1hz(signals: Dict[str, Optional[pd.DataFrame]],
     Strategy:
     - heatflux: already 1Hz, use directly
     - acc (~32Hz): downsample to 1Hz using mean per second
-    - ppg (~64Hz): downsample to 1Hz using mean per second
-    - emography (~0.017Hz): forward-fill to 1Hz
+    - hr: use pre-extracted 1Hz HR from HeartPy (NOT raw PPG!)
+    - emography: DISABLED (too low sampling rate ~0.017Hz)
     
     Args:
         signals: Dictionary of loaded signal DataFrames
@@ -202,8 +263,7 @@ def align_to_1hz(signals: Dict[str, Optional[pd.DataFrame]],
     
     Returns:
         DataFrame with columns: timestamp, acc_x, acc_y, acc_z, acc_magnitude,
-                               skin_temp, heatflux, cbt, pulse_rate,
-                               ppg_mean, ppg_std, eda_stress_skin
+                               skin_temp, heatflux, cbt, pulse_rate, hr_bpm
     """
     # Create 1Hz time grid
     time_grid = create_time_grid(start_time, end_time, freq="1S")
@@ -238,39 +298,51 @@ def align_to_1hz(signals: Dict[str, Optional[pd.DataFrame]],
                 aligned["acc_z"]**2
             )
     
-    # --- Align PPG (~64Hz -> 1Hz) ---
-    # NOTE: This downsampling destroys the cardiac waveform, making PPG unsuitable
-    # for deep learning models. We compute it here for completeness, but it should
-    # NOT be used for MOMENT or other time-series models.
-    ppg_df = signals.get("ppg")
-    if ppg_df is not None and len(ppg_df) > 0 and "value" in ppg_df.columns:
-        # Get mean PPG per second (loses cardiac pulse information)
-        aligned["ppg_mean"] = downsample_mean(ppg_df, "value", time_grid)
-        
-        # Also calculate std per second for variability
-        ppg_df_copy = ppg_df.copy().set_index("timestamp")
-        try:
-            ppg_std = ppg_df_copy["value"].resample("1S").std()
-            std_values = np.full(len(time_grid), np.nan)
-            for i, t in enumerate(time_grid):
-                if t in ppg_std.index:
-                    std_values[i] = ppg_std.loc[t]
-            aligned["ppg_std"] = std_values
-        except Exception:
-            aligned["ppg_std"] = np.nan
+    # --- Align HR from HeartPy (already at 1Hz) ---
+    # This is much better than downsampling raw PPG from 64Hz to 1Hz!
+    subject_id = signals.get("subject_id")
+    if subject_id:
+        hr_df = get_hr_for_subject(subject_id)
+        if hr_df is not None and len(hr_df) > 0:
+            # Merge HR data with time grid
+            hr_values = np.full(len(time_grid), np.nan)
+            rmssd_values = np.full(len(time_grid), np.nan)
+            
+            # Convert timestamps for matching
+            hr_df_ts = hr_df["timestamp"].values.astype('datetime64[ns]')
+            grid_ts = time_grid.values.astype('datetime64[ns]')
+            
+            for i, t in enumerate(grid_ts):
+                # Find matching timestamp (within 1 second)
+                time_diff = np.abs((hr_df_ts - t).astype('timedelta64[s]').astype(float))
+                if len(time_diff) > 0:
+                    min_diff_idx = np.argmin(time_diff)
+                    if time_diff[min_diff_idx] <= 1.0:
+                        hr_values[i] = hr_df["hr_bpm"].iloc[min_diff_idx]
+                        if "rmssd" in hr_df.columns:
+                            rmssd_values[i] = hr_df["rmssd"].iloc[min_diff_idx]
+            
+            aligned["hr_bpm"] = hr_values
+            aligned["rmssd"] = rmssd_values
     
-    # --- Align emography (~0.017Hz -> 1Hz via forward fill) ---
-    eda_df = signals.get("emography")
-    if eda_df is not None and len(eda_df) > 0:
-        # Look for stress_skin column
-        eda_col = None
-        for col in eda_df.columns:
-            if "stress" in col.lower() or "skin" in col.lower():
-                eda_col = col
-                break
-        
-        if eda_col:
-            aligned["eda_stress_skin"] = forward_fill_signal(eda_df, eda_col, time_grid)
+    # --- DISABLED: Raw PPG downsampling (destroys cardiac waveform) ---
+    # ppg_df = signals.get("ppg")
+    # if ppg_df is not None and len(ppg_df) > 0 and "value" in ppg_df.columns:
+    #     aligned["ppg_mean"] = downsample_mean(ppg_df, "value", time_grid)
+    #     # ppg_std calculation also disabled
+    
+    # --- DISABLED: EDA/Emography (too low sampling rate ~0.017Hz) ---
+    # The forward-filling creates artificial constant values which
+    # don't provide meaningful information for stress detection.
+    # eda_df = signals.get("emography")
+    # if eda_df is not None and len(eda_df) > 0:
+    #     eda_col = None
+    #     for col in eda_df.columns:
+    #         if "stress" in col.lower() or "skin" in col.lower():
+    #             eda_col = col
+    #             break
+    #     if eda_col:
+    #         aligned["eda_stress_skin"] = forward_fill_signal(eda_df, eda_col, time_grid)
     
     return aligned
 
@@ -281,13 +353,23 @@ if __name__ == "__main__":
     from config import DEFAULT_CONFIG
     
     print("Testing signal alignment...")
+    print(f"HR data path: {HR_DATA_PATH}")
+    print(f"HR data exists: {HR_DATA_PATH.exists()}")
+    
+    # Check if HR data is available
+    hr_df = load_hr_data()
+    if len(hr_df) > 0:
+        print(f"HR data loaded: {len(hr_df)} samples, {hr_df['subject_id'].nunique()} subjects")
+    else:
+        print("Warning: No HR data loaded. Run HeartPy extraction first!")
+    
     subjects = get_all_subjects(DEFAULT_CONFIG.data_path)
     
     if subjects:
         signals = load_raw_signals(subjects[0])
         start, end = get_experiment_time_range(signals)
         
-        print(f"Aligning signals from {start} to {end}")
+        print(f"\nAligning signals from {start} to {end}")
         aligned = align_to_1hz(signals, start, end)
         
         print(f"\nAligned DataFrame shape: {aligned.shape}")
@@ -302,4 +384,11 @@ if __name__ == "__main__":
                 missing = aligned[col].isna().sum()
                 pct = 100 * missing / len(aligned)
                 print(f"  {col}: {missing} ({pct:.1f}%)")
+        
+        # Check HR specifically
+        if "hr_bpm" in aligned.columns:
+            hr_valid = (~aligned["hr_bpm"].isna()).sum()
+            print(f"\nHR data: {hr_valid}/{len(aligned)} valid samples ({100*hr_valid/len(aligned):.1f}%)")
+        else:
+            print("\nWarning: hr_bpm column not in aligned data!")
 
