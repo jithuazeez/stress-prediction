@@ -1,6 +1,6 @@
 # VitaStress Multi-Model Stress Prediction Experiments
 
-This directory contains 4 distinct modeling approaches for stress prediction from multimodal wearable sensor data.
+This directory contains 6 distinct modeling approaches for stress prediction from multimodal wearable sensor data.
 
 ## Quick Start
 
@@ -17,6 +17,17 @@ python 02_moment/train.py
 python 03_ts2vec/pretrain.py
 python 03_ts2vec/train_classifier.py
 python 04_maml/train.py
+
+# NEW: Subject-Aware SSL (pre-train then fine-tune)
+python 05_subject_aware_ssl/pretrain.py --mode invariant --window_size 120
+python 05_subject_aware_ssl/train.py --mode invariant --window_size 120 --horizon 3
+
+# NEW: Multi-Rate Late Fusion
+python 06_multirate_fusion/train.py --window_size 120 --horizon 3
+
+# Run all configurations
+python 05_subject_aware_ssl/run_all.py
+python 06_multirate_fusion/run_all.py
 
 # Compare all results
 python compare_all.py
@@ -59,6 +70,24 @@ experiments/
 │   ├── model.py                # Base classifier
 │   ├── meta_dataset.py         # Task/episode sampling
 │   └── train.py                # Meta-training script
+│
+├── 05_subject_aware_ssl/       # Subject-Aware Contrastive SSL (NEW)
+│   ├── augmentations.py        # Temporal augmentations
+│   ├── encoder.py              # 1D ResNet encoder
+│   ├── losses.py               # InfoNCE, subject-invariant, subject-specific
+│   ├── dataset.py              # Data loading at 8Hz
+│   ├── config.py               # SSL configuration
+│   ├── pretrain.py             # Self-supervised pre-training
+│   ├── train.py                # Fine-tuning with LOSO
+│   └── run_all.py              # Run all configurations
+│
+├── 06_multirate_fusion/        # Multi-Rate Late Fusion (NEW)
+│   ├── encoders.py             # PPGEncoder, ACCEncoder, TempEncoder
+│   ├── model.py                # MultiRateFusionModel
+│   ├── dataset.py              # Native-rate data loading
+│   ├── config.py               # Multi-rate configuration
+│   ├── train.py                # Training with LOSO
+│   └── run_all.py              # Run all configurations
 │
 ├── compare_all.py              # Compare all experiments
 ├── requirements.txt            # Dependencies
@@ -121,6 +150,36 @@ Raw Data Files (per subject)
 **Reference:** [Model-Agnostic Meta-Learning](https://arxiv.org/pdf/1703.03400) | [learn2learn](https://github.com/learnables/learn2learn)
 
 **Key idea:** Each subject = one task. Model learns to adapt with 5 samples.
+
+### 5. Subject-Aware Contrastive SSL (05_subject_aware_ssl) - NEW
+
+**Approach:** Self-supervised pre-training with subject awareness, then fine-tune
+
+**Reference:** [Self-supervised learning of electrodermal activity representations](https://arxiv.org/abs/2301.06234) - Apple (2023)
+
+**Three modes:**
+- **Base SSL:** Standard InfoNCE contrastive loss
+- **Subject-Invariant:** InfoNCE + Adversarial loss (for generalization)
+- **Subject-Specific:** InfoNCE with same-subject negatives (for fine-tuning)
+
+**Features:**
+- 8Hz sampling rate (960 samples for 120s window)
+- Conservative augmentations to preserve temporal patterns
+- 1D ResNet encoder (~288K params)
+
+### 6. Multi-Rate Late Fusion (06_multirate_fusion) - NEW
+
+**Approach:** Process each modality at native sampling rate, then fuse
+
+**Sampling rates:**
+- PPG: 64 Hz (7680 samples for 120s)
+- ACC: 32 Hz (3840 samples for 120s)
+- Temp: 1 Hz (120 samples for 120s)
+
+**Architecture:**
+- Separate 1D CNN encoders per modality
+- Late fusion of embeddings
+- Classification head
 
 ## Evaluation
 
