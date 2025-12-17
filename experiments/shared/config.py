@@ -18,10 +18,11 @@ class Config:
     """Configuration for VitaStress experiments."""
     
     # Paths
-    data_path: Path = Path("/Users/jithuazeez/Documents/Msc/Dissertation/Datasets/VitaStress/data")
+    # data_path: Path = Path("/Users/jithuazeez/Documents/Msc/Dissertation/Datasets/VitaStress/data")
     # data_path: Path = Path("/kaggle/input/vitastress/VitaStress/data")
-    results_base_path: Path = Path("/Users/jithuazeez/Documents/Msc/Dissertation/experiments")
-    # results_base_path: Path = Path("/kaggle/working/stress-prediction/experiments")
+    data_path: Path = Path("/kaggle/input/vitastess2/VitaStress/data")
+    # results_base_path: Path = Path("/Users/jithuazeez/Documents/Msc/Dissertation/experiments")
+    results_base_path: Path = Path("/kaggle/working/stress-prediction/experiments")
     # Window parameters
     window_size_sec: int = 120  # 120 second windows
     overlap_ratio: float = 0.5  # 50% overlap (doubles sample count)
