@@ -106,21 +106,31 @@ def pretrain_epoch(
             embeddings = embedding1  # Use view1 embeddings
             losses = loss_fn(z1, z2, embeddings, subject_ids)
             
-            # Update subject classifier separately
+            # IMPORTANT: Do encoder backward FIRST (before classifier update)
+            optimizer.zero_grad()
+            losses["total"].backward()
+            
+            # Now do a SEPARATE forward pass for classifier update
+            # This avoids the in-place modification error
             if subject_classifier is not None and clf_optimizer is not None:
                 clf_optimizer.zero_grad()
-                losses["classifier"].backward(retain_graph=True)
+                # Fresh forward pass with detached embeddings
+                with torch.no_grad():
+                    emb_detached = model.encoder(view1)
+                clf_logits = subject_classifier(emb_detached)
+                clf_loss = nn.functional.cross_entropy(clf_logits, subject_ids)
+                clf_loss.backward()
                 clf_optimizer.step()
+                total_classifier += clf_loss.item()
             
-            total_classifier += losses["classifier"].item()
             total_adversarial += losses["adversarial"].item()
         else:
             # Base or Subject-Specific mode
             losses = loss_fn(z1, z2, subject_ids=subject_ids)
-        
-        # Backward pass for encoder
-        optimizer.zero_grad()
-        losses["total"].backward()
+            
+            # Backward pass for encoder
+            optimizer.zero_grad()
+            losses["total"].backward()
         
         # Gradient clipping
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
@@ -272,7 +282,7 @@ def pretrain(
     logger.info(f"{'-'*50}")
     
     pretrain_patience = getattr(config, "pretrain_patience", 30)
-    logger.info(f"Early stopping patience: {pretrain_patience} epochs")
+    logger.info(f"Early stopping: DISABLED (will train for all {config.pretrain_epochs} epochs)")
     
     start_time = time.time()
     best_loss = float("inf")
@@ -290,10 +300,9 @@ def pretrain(
         scheduler.step()
         
         # Update progress bar
-        pbar_dict = {"loss": f"{metrics['loss']:.4f}", "patience": f"{patience_counter}/{pretrain_patience}"}
+        pbar_dict = {"loss": f"{metrics['loss']:.4f}", "best": f"{best_loss:.4f}"}
         if config.ssl_mode == SSLMode.SUBJECT_INVARIANT:
             pbar_dict["clf"] = f"{metrics['classifier_loss']:.4f}"
-            pbar_dict["adv"] = f"{metrics['adversarial_loss']:.4f}"
         pbar.set_postfix(pbar_dict)
         
         # Log periodically
@@ -301,12 +310,12 @@ def pretrain(
             logger.info(
                 f"Epoch {epoch+1}/{config.pretrain_epochs}: "
                 f"Loss={metrics['loss']:.4f}, "
+                f"Best={best_loss:.4f}, "
                 f"Contrastive={metrics['contrastive_loss']:.4f}, "
-                f"LR={scheduler.get_last_lr()[0]:.6f}, "
-                f"Patience={patience_counter}/{pretrain_patience}"
+                f"LR={scheduler.get_last_lr()[0]:.6f}"
             )
         
-        # Check for improvement and early stopping
+        # Check for improvement and save best state
         if metrics["loss"] < best_loss:
             best_loss = metrics["loss"]
             patience_counter = 0
@@ -315,11 +324,11 @@ def pretrain(
         else:
             patience_counter += 1
         
-        # Early stopping check
-        if patience_counter >= pretrain_patience:
-            logger.info(f"\nEarly stopping triggered at epoch {epoch + 1}")
-            logger.info(f"No improvement for {pretrain_patience} epochs")
-            break
+        # Early stopping disabled - let model train for full epochs
+        # if patience_counter >= pretrain_patience:
+        #     logger.info(f"\nEarly stopping triggered at epoch {epoch + 1}")
+        #     logger.info(f"No improvement for {pretrain_patience} epochs")
+        #     break
     
     pbar.close()
     
