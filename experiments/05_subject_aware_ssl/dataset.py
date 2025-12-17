@@ -308,7 +308,7 @@ def load_windows_at_8hz(
     Returns:
         Tuple of (windows, subject_to_idx)
     """
-    from tqdm import tqdm
+    from tqdm.auto import tqdm
     
     if subjects is None:
         subjects = get_all_subjects(config.data_path)
