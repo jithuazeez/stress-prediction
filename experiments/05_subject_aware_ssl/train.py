@@ -199,7 +199,7 @@ def finetune_fold(
     else:
         pos_weight = 1.0
     
-    class_weights = torch.tensor([1.0, pos_weight], device=device)
+    class_weights = torch.tensor([1.0, pos_weight], dtype=torch.float32, device=device)
     criterion = nn.CrossEntropyLoss(weight=class_weights)
     
     # Optimizer with discriminative learning rates
