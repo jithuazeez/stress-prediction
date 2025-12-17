@@ -135,12 +135,12 @@ class SSLDataset(Dataset):
     
     def _normalize(self):
         """Normalize samples per-channel using z-score."""
-        # Compute mean and std per channel
-        mean = self.samples.mean(axis=(0, 2), keepdims=True)
-        std = self.samples.std(axis=(0, 2), keepdims=True)
+        # Compute mean and std per channel (ensure float32 to avoid promotion to float64)
+        mean = self.samples.mean(axis=(0, 2), keepdims=True).astype(np.float32)
+        std = self.samples.std(axis=(0, 2), keepdims=True).astype(np.float32)
         std = np.where(std == 0, 1, std)  # Avoid division by zero
         
-        self.samples = (self.samples - mean) / std
+        self.samples = ((self.samples - mean) / std).astype(np.float32)
     
     def __len__(self) -> int:
         return len(self.samples)
