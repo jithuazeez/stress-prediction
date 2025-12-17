@@ -76,7 +76,7 @@ class SSLConfig:
     ssl_adversarial_lambda: float = 0.5
     
     # Temperature for InfoNCE loss
-    temperature: float = 0.5
+    temperature: float = 0.1
     
     # ==========================================================================
     # Model Architecture
@@ -93,8 +93,8 @@ class SSLConfig:
     # ==========================================================================
     # Pre-training Parameters
     # ==========================================================================
-    pretrain_epochs: int = 100
-    pretrain_batch_size: int = 64
+    pretrain_epochs: int = 800
+    pretrain_batch_size: int = 128
     pretrain_lr: float = 1e-3
     pretrain_weight_decay: float = 1e-4
     pretrain_patience: int = 30  # Early stopping: stop if no improvement for N epochs

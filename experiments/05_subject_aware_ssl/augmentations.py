@@ -21,12 +21,12 @@ class AugmentationConfig:
     temporal_delay_max_samples: int = 10  # Shift up to 10 samples (~1.25s at 8Hz)
     temporal_delay_p: float = 0.8         # Apply 80% of the time
     
-    gaussian_noise_std: float = 0.03      # Small noise relative to signal std
+    gaussian_noise_std: float = 0.05      # Small noise relative to signal std
     gaussian_noise_p: float = 0.8         # Apply 80% of the time
     
     # USE WITH CAUTION
-    temporal_cutout_max_ratio: float = 0.3  # Max 30% of window
-    temporal_cutout_p: float = 0.5          # Apply 50% of the time
+    temporal_cutout_max_ratio: float = 0.4  # Max 40% of window
+    temporal_cutout_p: float = 0.7          # Apply 50% of the time
     
     channel_dropout_p_drop: float = 0.15   # Drop 15% of channels
     channel_dropout_p: float = 0.3         # Apply 30% of the time
