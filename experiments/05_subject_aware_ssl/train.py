@@ -69,7 +69,7 @@ def train_epoch(
     n_batches = 0
     
     for x, labels, _ in dataloader:
-        x = x.to(device)
+        x = x.to(device).float()  # Ensure float32 to avoid dtype mismatch
         labels = labels.to(device)
         
         optimizer.zero_grad()
@@ -112,7 +112,7 @@ def evaluate_model(
     
     with torch.no_grad():
         for x, labels, _ in dataloader:
-            x = x.to(device)
+            x = x.to(device).float()  # Ensure float32 to avoid dtype mismatch
             
             logits = model(x)
             probs = torch.softmax(logits, dim=-1)[:, 1]  # Prob of positive class
