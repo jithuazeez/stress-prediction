@@ -18,20 +18,25 @@ class Config:
     """Configuration for VitaStress experiments."""
     
     # Paths
-    # data_path: Path = Path("/Users/jithuazeez/Documents/Msc/Dissertation/Datasets/VitaStress/data")
-    data_path: Path = Path("/kaggle/input/vitastress/VitaStress/data")
-    # results_base_path: Path = Path("/Users/jithuazeez/Documents/Msc/Dissertation/experiments")
-    results_base_path: Path = Path("/kaggle/working/stress-prediction/experiments")
+    data_path: Path = Path("/Users/jithuazeez/Documents/Msc/Dissertation/Datasets/VitaStress/data")
+    # data_path: Path = Path("/kaggle/input/vitastress/VitaStress/data")
+    results_base_path: Path = Path("/Users/jithuazeez/Documents/Msc/Dissertation/experiments")
+    # results_base_path: Path = Path("/kaggle/working/stress-prediction/experiments")
     # Window parameters
     window_size_sec: int = 120  # 120 second windows
-    overlap_ratio: float = 0.0  # Non-overlapping windows
+    overlap_ratio: float = 0.5  # 50% overlap (doubles sample count)
     skip_first_minutes: int = 1  # Skip first minute (sensor settling)
+    
+    # NOTE: Overlapping windows are safe with LOSO because:
+    # - All windows from the same subject stay in the same split (train OR test)
+    # - No data leakage between subjects
+    # - Overlap only increases samples WITHIN each subject's data
     
     # Prediction horizons (in minutes)
     horizons_minutes: List[int] = field(default_factory=lambda: [3, 5, 10])
     
     # Target label for experiments
-    target_label: str = "label_5min"
+    target_label: str = "label_3min"
     
     # Sampling rates (from VitaStress dataset)
     # NOTE: These are used as defaults but should be calculated from data
