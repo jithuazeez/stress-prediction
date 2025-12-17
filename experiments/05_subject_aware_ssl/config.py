@@ -222,7 +222,7 @@ DEFAULT_SSL_CONFIG = SSLConfig()
 
 def get_run_name(config: SSLConfig) -> str:
     """Generate run name from config."""
-    return f"ssl_{config.ssl_mode.value}_{config.window_size_sec}s_{config.target_label}"
+    return f"ssl_{config.ssl_mode.value}_{config.window_size_sec}s"
 
 
 if __name__ == "__main__":

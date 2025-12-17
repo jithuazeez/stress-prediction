@@ -363,12 +363,9 @@ def load_pretrained_encoder(
     encoder_path = config.results_path / "checkpoints" / f"pretrain_encoder_{run_name}.pt"
     
     if not encoder_path.exists():
-        logger.warning(f"Pre-trained encoder not found at {encoder_path}")
-        logger.info("Training from scratch...")
-        encoder = create_ssl_encoder(
-            input_channels=config.n_channels,
-            embedding_dim=config.embedding_dim
-        ).to(device)
+        logger.error(f"Pre-trained encoder not found at {encoder_path}")
+        raise FileNotFoundError(f"Pre-trained encoder not found at {encoder_path}")
+        
     else:
         logger.info(f"Loading pre-trained encoder from {encoder_path}")
         encoder = create_ssl_encoder(
