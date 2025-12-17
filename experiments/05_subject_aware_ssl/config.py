@@ -24,9 +24,13 @@ class SSLConfig:
     # ==========================================================================
     # Paths
     # ==========================================================================
-    data_path: Path = Path("/Users/jithuazeez/Documents/Msc/Dissertation/Datasets/VitaStress/data")
-    results_path: Path = Path("/Users/jithuazeez/Documents/Msc/Dissertation/experiments/05_subject_aware_ssl/results")
-    
+    # data_path: Path = Path("/Users/jithuazeez/Documents/Msc/Dissertation/Datasets/VitaStress/data")
+    # results_path: Path = Path("/Users/jithuazeez/Documents/Msc/Dissertation/experiments/05_subject_aware_ssl/results")
+    # data_path: Path = Path("/Users/jithuazeez/Documents/Msc/Dissertation/Datasets/VitaStress/data")
+    # data_path: Path = Path("/kaggle/input/vitastress/VitaStress/data")
+    data_path: Path = Path("/kaggle/input/vitastess2/VitaStress/data")
+    # results_base_path: Path = Path("/Users/jithuazeez/Documents/Msc/Dissertation/experiments")
+    results_base_path: Path = Path("/kaggle/working/stress-prediction/experiments") 
     # ==========================================================================
     # Data Parameters
     # ==========================================================================
