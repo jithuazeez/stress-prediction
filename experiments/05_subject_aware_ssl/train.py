@@ -195,7 +195,7 @@ def finetune_fold(
     n_neg = (train_dataset.labels == 0).sum()
     
     if n_pos > 0 and n_neg > 0:
-        pos_weight = n_neg / n_pos
+        pos_weight = np.sqrt(n_neg / n_pos)
     else:
         pos_weight = 1.0
     
