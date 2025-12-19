@@ -127,6 +127,51 @@ def evaluate_model(
     return y_true, y_pred, y_proba
 
 
+def compute_training_metrics(
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
+    y_proba: np.ndarray
+) -> Dict[str, float]:
+    """
+    Compute key metrics for training monitoring.
+    
+    Args:
+        y_true: True labels
+        y_pred: Predicted labels
+        y_proba: Predicted probabilities
+    
+    Returns:
+        Dictionary with metrics
+    """
+    from sklearn.metrics import confusion_matrix
+    
+    # Compute confusion matrix
+    tn, fp, fn, tp = confusion_matrix(y_true, y_pred, labels=[0, 1]).ravel()
+    
+    # Sensitivity (Recall)
+    sensitivity = tp / (tp + fn) if (tp + fn) > 0 else 0
+    
+    # Specificity
+    specificity = tn / (tn + fp) if (tn + fp) > 0 else 0
+    
+    # Precision
+    precision = tp / (tp + fp) if (tp + fp) > 0 else 0
+    
+    # G-mean
+    gmean = np.sqrt(sensitivity * specificity)
+    
+    # Balanced accuracy
+    balanced_acc = (sensitivity + specificity) / 2
+    
+    return {
+        "precision": precision,
+        "recall": sensitivity,
+        "gmean": gmean,
+        "balanced_accuracy": balanced_acc,
+        "specificity": specificity
+    }
+
+
 def finetune_fold(
     encoder: SSLEncoder,
     train_windows: List[Dict],
@@ -240,17 +285,65 @@ def finetune_fold(
     cls_head.load_state_dict(best_state["head"])
     model = SSLModel(encoder_copy, cls_head)
     
-    # Find optimal threshold on training data
+    # Get predictions on training data
     y_train_true, _, y_train_proba = evaluate_model(model, train_loader, device)
-    optimal_threshold, _ = find_optimal_threshold(y_train_true, y_train_proba, method="youden")
     
-    # Evaluate on test set with optimal threshold
+    # Try different threshold methods
+    threshold_methods = ["youden", "f1", "balanced", "geometric_mean"]
+    threshold_results = {}
+    
+    logger.info(f"  Comparing threshold methods on training data:")
+    
+    for method in threshold_methods:
+        # Find threshold with this method
+        thresh, _ = find_optimal_threshold(y_train_true, y_train_proba, method=method)
+        
+        # Apply to training data to evaluate
+        _, y_train_pred, _ = evaluate_model(model, train_loader, device, threshold=thresh)
+        train_metrics = compute_training_metrics(y_train_true, y_train_pred, y_train_proba)
+        
+        threshold_results[method] = {
+            "threshold": thresh,
+            "gmean": train_metrics["gmean"],
+            "recall": train_metrics["recall"],
+            "precision": train_metrics["precision"],
+            "balanced_accuracy": train_metrics["balanced_accuracy"],
+            "specificity": train_metrics["specificity"]
+        }
+        
+        logger.info(
+            f"    {method:15s}: thresh={thresh:.3f}, "
+            f"G-mean={train_metrics['gmean']:.3f}, "
+            f"Recall={train_metrics['recall']:.3f}, "
+            f"Prec={train_metrics['precision']:.3f}, "
+            f"Spec={train_metrics['specificity']:.3f}"
+        )
+    
+    # Choose best method based on G-mean (highest balance)
+    best_method = max(threshold_results.keys(), key=lambda m: threshold_results[m]["gmean"])
+    optimal_threshold = threshold_results[best_method]["threshold"]
+    
+    logger.info(f"  → Selected method: {best_method} with G-mean={threshold_results[best_method]['gmean']:.3f}")
+    
+    # Evaluate on test set with selected threshold
     y_true, y_pred, y_proba = evaluate_model(model, test_loader, device, threshold=optimal_threshold)
     
-    # Compute metrics
+    # Compute test metrics
     metrics = evaluate_predictions(y_true, y_pred, y_proba, fold_name, threshold=optimal_threshold)
+    
+    # Add G-mean to metrics
+    test_metrics = compute_training_metrics(y_true, y_pred, y_proba)
+    metrics["gmean"] = test_metrics["gmean"]
+    
+    # Save threshold method info
+    metrics["threshold_method"] = best_method
     metrics["optimal_threshold"] = optimal_threshold
     metrics["train_epochs"] = epoch + 1
+    
+    # Add all threshold comparison results
+    for method, results in threshold_results.items():
+        metrics[f"train_{method}_threshold"] = results["threshold"]
+        metrics[f"train_{method}_gmean"] = results["gmean"]
     
     return metrics, y_true, y_pred, y_proba
 
@@ -320,7 +413,9 @@ def loso_evaluation(
             f"  {test_subject[:8]}: "
             f"AUROC={metrics.get('auroc', 0):.3f}, "
             f"PR-AUC={metrics.get('pr_auc', 0):.3f}, "
-            f"F1={metrics.get('f1', 0):.3f}"
+            f"F1={metrics.get('f1', 0):.3f}, "
+            f"G-mean={metrics.get('gmean', 0):.3f}, "
+            f"Method={metrics.get('threshold_method', 'unknown')}"
         )
     
     pbar.close()

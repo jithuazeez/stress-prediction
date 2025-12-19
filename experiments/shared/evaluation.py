@@ -71,6 +71,10 @@ def find_optimal_threshold(y_true: np.ndarray,
         specificity = 1 - fpr
         diff = np.abs(tpr - specificity)
         idx = np.argmin(diff)
+    elif method == "geometric_mean":
+        # Find threshold that maximizes the geometric mean of sensitivity and specificity
+        gmean = np.sqrt(tpr * specificity)
+        idx = np.argmax(gmean)
     else:
         raise ValueError(f"Unknown method: {method}")
     

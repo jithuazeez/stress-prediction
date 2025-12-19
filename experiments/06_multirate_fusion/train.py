@@ -123,6 +123,51 @@ def evaluate_model(
     return y_true, y_pred, y_proba
 
 
+def compute_training_metrics(
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
+    y_proba: np.ndarray
+) -> Dict[str, float]:
+    """
+    Compute key metrics for training monitoring.
+    
+    Args:
+        y_true: True labels
+        y_pred: Predicted labels
+        y_proba: Predicted probabilities
+    
+    Returns:
+        Dictionary with metrics
+    """
+    from sklearn.metrics import confusion_matrix
+    
+    # Compute confusion matrix
+    tn, fp, fn, tp = confusion_matrix(y_true, y_pred, labels=[0, 1]).ravel()
+    
+    # Sensitivity (Recall)
+    sensitivity = tp / (tp + fn) if (tp + fn) > 0 else 0
+    
+    # Specificity
+    specificity = tn / (tn + fp) if (tn + fp) > 0 else 0
+    
+    # Precision
+    precision = tp / (tp + fp) if (tp + fp) > 0 else 0
+    
+    # G-mean
+    gmean = np.sqrt(sensitivity * specificity)
+    
+    # Balanced accuracy
+    balanced_acc = (sensitivity + specificity) / 2
+    
+    return {
+        "precision": precision,
+        "recall": sensitivity,
+        "gmean": gmean,
+        "balanced_accuracy": balanced_acc,
+        "specificity": specificity
+    }
+
+
 def train_fold(
     train_windows: List[Dict],
     test_windows: List[Dict],
@@ -200,9 +245,29 @@ def train_fold(
     patience_counter = 0
     best_state = None
     
+    logger.info(f"  Training {fold_name}...")
+    
     for epoch in range(config.n_epochs):
         train_loss = train_epoch(model, train_loader, criterion, optimizer, device)
         scheduler.step(train_loss)
+        
+        # Log metrics every 10 epochs or at the first epoch
+        if epoch == 0 or (epoch + 1) % 10 == 0:
+            # Evaluate on training set to monitor progress
+            y_train_true, _, y_train_proba = evaluate_model(model, train_loader, device, threshold=0.5)
+            train_threshold, _ = find_optimal_threshold(y_train_true, y_train_proba, method="geometric_mean")
+            _, y_train_pred, _ = evaluate_model(model, train_loader, device, threshold=train_threshold)
+            
+            train_metrics = compute_training_metrics(y_train_true, y_train_pred, y_train_proba)
+            
+            logger.info(
+                f"    Epoch {epoch+1:3d}/{config.n_epochs}: "
+                f"Loss={train_loss:.4f}, "
+                f"Recall={train_metrics['recall']:.3f}, "
+                f"Precision={train_metrics['precision']:.3f}, "
+                f"G-mean={train_metrics['gmean']:.3f}, "
+                f"BalAcc={train_metrics['balanced_accuracy']:.3f}"
+            )
         
         if train_loss < best_loss:
             best_loss = train_loss
@@ -212,23 +277,72 @@ def train_fold(
             patience_counter += 1
         
         if patience_counter >= config.patience:
+            logger.info(f"    Early stopping at epoch {epoch+1}")
             break
     
     # Load best model
     if best_state is not None:
         model.load_state_dict(best_state)
     
-    # Find optimal threshold on training data
+    # Get predictions on training data
     y_train_true, _, y_train_proba = evaluate_model(model, train_loader, device)
-    optimal_threshold, _ = find_optimal_threshold(y_train_true, y_train_proba, method="youden")
     
-    # Evaluate on test set
+    # Try different threshold methods
+    threshold_methods = ["youden", "f1", "balanced", "geometric_mean"]
+    threshold_results = {}
+    
+    logger.info(f"  Comparing threshold methods on training data:")
+    
+    for method in threshold_methods:
+        # Find threshold with this method
+        thresh, _ = find_optimal_threshold(y_train_true, y_train_proba, method=method)
+        
+        # Apply to training data to evaluate
+        _, y_train_pred, _ = evaluate_model(model, train_loader, device, threshold=thresh)
+        train_metrics = compute_training_metrics(y_train_true, y_train_pred, y_train_proba)
+        
+        threshold_results[method] = {
+            "threshold": thresh,
+            "gmean": train_metrics["gmean"],
+            "recall": train_metrics["recall"],
+            "precision": train_metrics["precision"],
+            "balanced_accuracy": train_metrics["balanced_accuracy"],
+            "specificity": train_metrics["specificity"]
+        }
+        
+        logger.info(
+            f"    {method:15s}: thresh={thresh:.3f}, "
+            f"G-mean={train_metrics['gmean']:.3f}, "
+            f"Recall={train_metrics['recall']:.3f}, "
+            f"Prec={train_metrics['precision']:.3f}, "
+            f"Spec={train_metrics['specificity']:.3f}"
+        )
+    
+    # Choose best method based on G-mean (highest balance)
+    best_method = max(threshold_results.keys(), key=lambda m: threshold_results[m]["gmean"])
+    optimal_threshold = threshold_results[best_method]["threshold"]
+    
+    logger.info(f"  → Selected method: {best_method} with G-mean={threshold_results[best_method]['gmean']:.3f}")
+    
+    # Evaluate on test set with selected threshold
     y_true, y_pred, y_proba = evaluate_model(model, test_loader, device, threshold=optimal_threshold)
     
-    # Compute metrics
+    # Compute test metrics
     metrics = evaluate_predictions(y_true, y_pred, y_proba, fold_name, threshold=optimal_threshold)
+    
+    # Add G-mean to metrics
+    test_metrics = compute_training_metrics(y_true, y_pred, y_proba)
+    metrics["gmean"] = test_metrics["gmean"]
+    
+    # Save threshold method info
+    metrics["threshold_method"] = best_method
     metrics["optimal_threshold"] = optimal_threshold
     metrics["train_epochs"] = epoch + 1
+    
+    # Add all threshold comparison results
+    for method, results in threshold_results.items():
+        metrics[f"train_{method}_threshold"] = results["threshold"]
+        metrics[f"train_{method}_gmean"] = results["gmean"]
     
     return metrics, y_true, y_pred, y_proba
 
@@ -296,7 +410,10 @@ def loso_evaluation(
             f"  {test_subject[:8]}: "
             f"AUROC={metrics.get('auroc', 0):.3f}, "
             f"PR-AUC={metrics.get('pr_auc', 0):.3f}, "
-            f"F1={metrics.get('f1', 0):.3f}"
+            f"F1={metrics.get('f1', 0):.3f}, "
+            f"G-mean={metrics.get('gmean', 0):.3f}, "
+            f"Recall={metrics.get('recall', 0):.3f}, "
+            f"Method={metrics.get('threshold_method', 'unknown')}"
         )
     
     pbar.close()
@@ -413,8 +530,10 @@ def main():
     logger.info(f"AUROC: {aggregated.get('auroc_mean', 0):.3f} ± {aggregated.get('auroc_std', 0):.3f}")
     logger.info(f"PR-AUC: {aggregated.get('pr_auc_mean', 0):.3f} ± {aggregated.get('pr_auc_std', 0):.3f}")
     logger.info(f"F1: {aggregated.get('f1_mean', 0):.3f} ± {aggregated.get('f1_std', 0):.3f}")
+    logger.info(f"G-mean: {aggregated.get('gmean_mean', 0):.3f} ± {aggregated.get('gmean_std', 0):.3f}")
     logger.info(f"Recall: {aggregated.get('recall_mean', 0):.3f} ± {aggregated.get('recall_std', 0):.3f}")
     logger.info(f"Precision: {aggregated.get('precision_mean', 0):.3f} ± {aggregated.get('precision_std', 0):.3f}")
+    logger.info(f"Balanced Accuracy: {aggregated.get('balanced_accuracy_mean', 0):.3f} ± {aggregated.get('balanced_accuracy_std', 0):.3f}")
     
     # Save results
     save_results(aggregated, config.results_path, f"multirate_{run_name}")
@@ -433,12 +552,17 @@ def main():
     print(f"MULTI-RATE FUSION - LOSO Results")
     print(f"{'='*60}")
     print(f"Window: {config.window_size_sec}s | Horizon: {args.horizon}min")
+    print(f"Threshold Method: G-mean (geometric mean)")
     print(f"AUROC: {aggregated.get('auroc_mean', 0):.3f} ± {aggregated.get('auroc_std', 0):.3f}")
     print(f"PR-AUC: {aggregated.get('pr_auc_mean', 0):.3f} ± {aggregated.get('pr_auc_std', 0):.3f}")
     print(f"F1: {aggregated.get('f1_mean', 0):.3f} ± {aggregated.get('f1_std', 0):.3f}")
+    print(f"G-mean: {aggregated.get('gmean_mean', 0):.3f} ± {aggregated.get('gmean_std', 0):.3f}")
+    print(f"Recall: {aggregated.get('recall_mean', 0):.3f} ± {aggregated.get('recall_std', 0):.3f}")
+    print(f"Balanced Accuracy: {aggregated.get('balanced_accuracy_mean', 0):.3f} ± {aggregated.get('balanced_accuracy_std', 0):.3f}")
     print(f"Results saved to: {config.results_path}")
 
 
 if __name__ == "__main__":
     main()
+
 
