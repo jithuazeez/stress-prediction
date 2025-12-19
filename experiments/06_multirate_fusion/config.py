@@ -23,7 +23,7 @@ class MultiRateConfig:
     # data_path: Path = Path("/kaggle/input/vitastress/VitaStress/data")
     data_path: Path = Path("/kaggle/input/vitastess2/VitaStress/data")
     # results_base_path: Path = Path("/Users/jithuazeez/Documents/Msc/Dissertation/experiments")
-    results_base_path: Path = Path("/kaggle/working/stress-prediction/experiments")
+    results_path: Path = Path("/kaggle/working/stress-prediction/experiments")
     # ==========================================================================
     # Native Sampling Rates
     # ==========================================================================
