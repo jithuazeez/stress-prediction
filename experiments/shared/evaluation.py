@@ -52,6 +52,9 @@ def find_optimal_threshold(y_true: np.ndarray,
     # Get ROC curve: fpr = false alarm rate, tpr = sensitivity
     fpr, tpr, thresholds = roc_curve(y_true, y_proba)
     
+    # Calculate specificity (used by multiple methods)
+    specificity = 1 - fpr
+    
     if method == "youden":
         # Youden's J statistic: maximizes (sensitivity + specificity - 1)
         # Equivalent to maximizing (TPR - FPR)
@@ -68,7 +71,6 @@ def find_optimal_threshold(y_true: np.ndarray,
         idx = np.argmin(np.abs(thresholds - optimal_thresh))
     elif method == "balanced":
         # Find threshold where sensitivity ≈ specificity
-        specificity = 1 - fpr
         diff = np.abs(tpr - specificity)
         idx = np.argmin(diff)
     elif method == "geometric_mean":
