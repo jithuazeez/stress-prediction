@@ -61,7 +61,7 @@ def extract_signal_at_native_rate(
     window_timestamps = timestamps[mask]
     
     # Convert to seconds from start
-    t_data = (window_timestamps - target_start).total_seconds().values
+    t_data = (window_timestamps - target_start).dt.total_seconds().values
     
     # Create target time grid
     duration = (target_end - target_start).total_seconds()
@@ -246,28 +246,28 @@ class MultiRateDataset(Dataset):
     def _normalize(self):
         """Normalize each modality."""
         # Handle NaN
-        self.ppg_data = np.nan_to_num(self.ppg_data, nan=0.0)
-        self.acc_data = np.nan_to_num(self.acc_data, nan=0.0)
-        self.temp_data = np.nan_to_num(self.temp_data, nan=0.0)
+        self.ppg_data = np.nan_to_num(self.ppg_data, nan=0.0).astype(np.float32)
+        self.acc_data = np.nan_to_num(self.acc_data, nan=0.0).astype(np.float32)
+        self.temp_data = np.nan_to_num(self.temp_data, nan=0.0).astype(np.float32)
         
         # PPG: per-sample normalization (removes baseline drift)
         ppg_mean = self.ppg_data.mean(axis=1, keepdims=True)
         ppg_std = self.ppg_data.std(axis=1, keepdims=True)
         ppg_std = np.where(ppg_std == 0, 1, ppg_std)
-        self.ppg_data = (self.ppg_data - ppg_mean) / ppg_std
+        self.ppg_data = ((self.ppg_data - ppg_mean) / ppg_std).astype(np.float32)
         
         # ACC: per-channel normalization
         for i in range(3):
             mean = self.acc_data[:, i, :].mean()
             std = self.acc_data[:, i, :].std()
             if std > 0:
-                self.acc_data[:, i, :] = (self.acc_data[:, i, :] - mean) / std
+                self.acc_data[:, i, :] = ((self.acc_data[:, i, :] - mean) / std).astype(np.float32)
         
         # Temp: global normalization
         temp_mean = self.temp_data.mean()
         temp_std = self.temp_data.std()
         if temp_std > 0:
-            self.temp_data = (self.temp_data - temp_mean) / temp_std
+            self.temp_data = ((self.temp_data - temp_mean) / temp_std).astype(np.float32)
     
     def __len__(self) -> int:
         return len(self.labels)
@@ -466,3 +466,4 @@ if __name__ == "__main__":
             break
     
     print("\nAll tests passed!")
+

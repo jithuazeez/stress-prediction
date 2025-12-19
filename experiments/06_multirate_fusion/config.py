@@ -19,9 +19,11 @@ class MultiRateConfig:
     # ==========================================================================
     # Paths
     # ==========================================================================
-    data_path: Path = Path("/Users/jithuazeez/Documents/Msc/Dissertation/Datasets/VitaStress/data")
-    results_path: Path = Path("/Users/jithuazeez/Documents/Msc/Dissertation/experiments/06_multirate_fusion/results")
-    
+    # data_path: Path = Path("/Users/jithuazeez/Documents/Msc/Dissertation/Datasets/VitaStress/data")
+    # data_path: Path = Path("/kaggle/input/vitastress/VitaStress/data")
+    data_path: Path = Path("/kaggle/input/vitastess2/VitaStress/data")
+    # results_base_path: Path = Path("/Users/jithuazeez/Documents/Msc/Dissertation/experiments")
+    results_base_path: Path = Path("/kaggle/working/stress-prediction/experiments")
     # ==========================================================================
     # Native Sampling Rates
     # ==========================================================================
@@ -172,3 +174,4 @@ if __name__ == "__main__":
     print(f"  ACC: {config.acc_sample_rate}Hz -> {config.acc_samples_per_window} samples")
     print(f"  Temp: {config.temp_sample_rate}Hz -> {config.temp_samples_per_window} samples")
     print(f"  Total embedding: {config.total_embedding_dim}")
+

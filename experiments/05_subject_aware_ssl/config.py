@@ -73,7 +73,7 @@ class SSLConfig:
     
     # Lambda for adversarial loss (only used in SUBJECT_INVARIANT mode)
     # Paper recommends 0.5-1.0 for ~20 subjects
-    ssl_adversarial_lambda: float = 0.5
+    ssl_adversarial_lambda: float = 0.1
     
     # Temperature for InfoNCE loss
     temperature: float = 0.1

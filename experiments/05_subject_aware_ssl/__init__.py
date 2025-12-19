@@ -9,3 +9,4 @@ Implements three training modes:
 2. Subject-Invariant: Contrastive + Adversarial loss (for generalization)
 3. Subject-Specific: Contrastive with same-subject negatives (for fine-tuning)
 """
+

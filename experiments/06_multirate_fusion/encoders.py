@@ -316,3 +316,4 @@ if __name__ == "__main__":
         print(f"  Total: {count_parameters(ppg_enc) + count_parameters(acc_enc) + count_parameters(temp_enc):,}")
     
     print("\nAll tests passed!")
+
