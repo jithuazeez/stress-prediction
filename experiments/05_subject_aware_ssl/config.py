@@ -97,7 +97,7 @@ class SSLConfig:
     pretrain_batch_size: int = 128
     pretrain_lr: float = 1e-3
     pretrain_weight_decay: float = 1e-4
-    pretrain_patience: int = 30  # Early stopping: stop if no improvement for N epochs
+    pretrain_patience: int = 70  # Early stopping: stop if no improvement for N epochs
     
     # ==========================================================================
     # Fine-tuning Parameters
@@ -109,7 +109,7 @@ class SSLConfig:
     finetune_weight_decay: float = 1e-4
     
     # Early stopping patience
-    patience: int = 15
+    patience: int = 75
     
     # ==========================================================================
     # Augmentation Settings
