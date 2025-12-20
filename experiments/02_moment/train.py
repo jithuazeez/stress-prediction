@@ -114,16 +114,35 @@ def train_epoch(model: nn.Module,
                 optimizer: optim.Optimizer,
                 device: torch.device,
                 epoch: int,
-                n_epochs: int) -> float:
-    """Train for one epoch with progress bar."""
+                n_epochs: int,
+                verbose: bool = False) -> float:
+    """
+    Train for one epoch.
+    
+    Args:
+        model: Model to train
+        train_loader: Training data loader
+        criterion: Loss function
+        optimizer: Optimizer
+        device: Device to train on
+        epoch: Current epoch number
+        n_epochs: Total epochs
+        verbose: If True, show per-batch progress bar (can cause issues in Kaggle/Colab)
+    
+    Returns:
+        Average loss for the epoch
+    """
     model.train()
     total_loss = 0.0
     n_batches = 0
     
-    pbar = tqdm(train_loader, desc=f"  Epoch {epoch+1}/{n_epochs}", 
-                leave=False, unit="batch")
+    # Only show progress bar if verbose mode (disabled by default for Kaggle/Colab)
+    loader = train_loader
+    if verbose:
+        loader = tqdm(train_loader, desc=f"  Epoch {epoch+1}/{n_epochs}", 
+                      leave=False, unit="batch")
     
-    for x, y in pbar:
+    for x, y in loader:
         x, y = x.to(device), y.to(device)
         
         optimizer.zero_grad()
@@ -135,9 +154,12 @@ def train_epoch(model: nn.Module,
         total_loss += loss.item()
         n_batches += 1
         
-        pbar.set_postfix({"Loss": f"{loss.item():.4f}"})
+        if verbose and hasattr(loader, 'set_postfix'):
+            loader.set_postfix({"Loss": f"{loss.item():.4f}"})
     
-    pbar.close()
+    if verbose and hasattr(loader, 'close'):
+        loader.close()
+    
     return total_loss / max(n_batches, 1)
 
 
@@ -312,23 +334,11 @@ def loso_cross_validation(windows_by_subject: Dict[str, List[Dict]],
     subjects = list(windows_by_subject.keys())
     n_subjects = len(subjects)
     
+    # Compact logging header for Kaggle/Colab compatibility
     logger.info(f"\n{'='*60}")
-    logger.info(f"LOSO CROSS-VALIDATION STRATEGY")
+    logger.info(f"LOSO CV: {n_subjects} subjects | {n_epochs} epochs | batch={batch_size} | lr={learning_rate}")
+    logger.info(f"Threshold: {threshold_method} (computed on training data)")
     logger.info(f"{'='*60}")
-    logger.info(f"Strategy: Leave-One-Subject-Out (LOSO)")
-    logger.info(f"  - Train on N-1 subjects, test on 1 held-out subject")
-    logger.info(f"  - Repeat for all {n_subjects} subjects")
-    logger.info(f"  - Guarantees NO data leakage between subjects")
-    logger.info(f"\nTraining Configuration:")
-    logger.info(f"  Total subjects: {n_subjects}")
-    logger.info(f"  Epochs per fold: {n_epochs}")
-    logger.info(f"  Batch size: {batch_size}")
-    logger.info(f"  Learning rate: {learning_rate}")
-    logger.info(f"\nEvaluation Strategy:")
-    logger.info(f"  Threshold Method: {threshold_method}")
-    logger.info(f"  Threshold computed on TRAINING data (no data leakage)")
-    logger.info(f"  Metrics reported honestly without forcing targets")
-    logger.info(f"{'='*60}\n")
     
     all_y_true = []
     all_y_proba = []
@@ -341,11 +351,11 @@ def loso_cross_validation(windows_by_subject: Dict[str, List[Dict]],
     
     # Unfreezing strategy (RECOMMENDED: 2 for ~1000 samples)
     UNFREEZE_LAST_N_BLOCKS = 2
-    logger.info(f"  Backbone: Frozen with last {UNFREEZE_LAST_N_BLOCKS} transformer blocks unfrozen")
     
     # Normalization mode for dataset
     NORMALIZATION_MODE = "subject"  # "subject" or "window"
-    logger.info(f"  Normalization: {NORMALIZATION_MODE}-wise z-score normalization")
+    
+    logger.info(f"Unfreeze last {UNFREEZE_LAST_N_BLOCKS} blocks | {NORMALIZATION_MODE}-wise norm | {config.n_channels} channels")
     
     # Store hyperparameters
     hyperparameters = {
@@ -414,13 +424,10 @@ def loso_cross_validation(windows_by_subject: Dict[str, List[Dict]],
             use_simple=False
         ).to(device)
         
-        # Log trainable parameters (only on first fold)
+        # Log trainable parameters (only on first fold) - compact format
         if fold_idx == 0:
             param_info = model.get_trainable_params_info()
-            logger.info(f"\n  Model Parameters:")
-            logger.info(f"    Total:     {param_info['total_params']:,}")
-            logger.info(f"    Trainable: {param_info['trainable_params']:,} ({param_info['trainable_pct']:.1f}%)")
-            logger.info(f"    Frozen:    {param_info['frozen_params']:,}")
+            logger.info(f"Model: {param_info['total_params']:,} params | Trainable: {param_info['trainable_params']:,} ({param_info['trainable_pct']:.1f}%)")
         
         # Class weights
         n_pos = sum(1 for w in train_windows if w.get(config.target_label, 0) == 1)
@@ -487,7 +494,7 @@ def loso_cross_validation(windows_by_subject: Dict[str, List[Dict]],
         fold_metric["train_specificity"] = train_thresh_metrics.get("specificity", float("nan"))
         fold_metrics.append(fold_metric)
         
-        # Log fold results
+        # Log fold results - compact format for Kaggle/Colab compatibility
         fold_auroc = fold_metric.get("auroc", float("nan"))
         fold_pr_auc = fold_metric.get("pr_auc", float("nan"))
         fold_sensitivity = fold_metric.get("sensitivity", float("nan"))
@@ -496,20 +503,16 @@ def loso_cross_validation(windows_by_subject: Dict[str, List[Dict]],
         fold_f1 = fold_metric.get("f1", float("nan"))
         fold_far = fold_metric.get("false_alarm_rate", float("nan"))
         
-        logger.info(f"\n  Fold {fold_idx+1}/{n_subjects} - Subject {test_subject[:12]}...")
-        logger.info(f"    Train: {len(train_windows)} windows ({n_pos}/{n_neg} pos/neg, weight={np.sqrt(n_neg/max(n_pos,1)):.2f})")
-        logger.info(f"    Test:  {len(test_windows)} windows ({sum(y_true)}/{len(y_true)-sum(y_true)} pos/neg)")
-        logger.info(f"    Train Loss:     {best_train_loss:.4f}")
-        logger.info(f"    Threshold:      {fold_threshold:.4f} (from training, method={threshold_method})")
-        logger.info(f"    --- Threshold-Independent ---")
-        logger.info(f"    AUROC:          {fold_auroc:.4f}")
-        logger.info(f"    PR-AUC:         {fold_pr_auc:.4f}")
-        logger.info(f"    --- Test Set Performance ---")
-        logger.info(f"    Sensitivity:    {fold_sensitivity:.4f} (Recall)")
-        logger.info(f"    Specificity:    {fold_specificity:.4f}")
-        logger.info(f"    False Alarm:    {fold_far:.4f}")
-        logger.info(f"    Precision:      {fold_precision:.4f}")
-        logger.info(f"    F1-Score:       {fold_f1:.4f}")
+        # Compact single-line logging to avoid Kaggle/Colab output buffer issues
+        logger.info(
+            f"Fold {fold_idx+1:2d}/{n_subjects} | "
+            f"Subj: {test_subject[:8]} | "
+            f"Loss: {best_train_loss:.3f} | "
+            f"AUROC: {fold_auroc:.3f} | "
+            f"Sens: {fold_sensitivity:.3f} | "
+            f"Spec: {fold_specificity:.3f} | "
+            f"F1: {fold_f1:.3f}"
+        )
         
         # Save model checkpoint (every 5th fold + best model)
         is_best = fold_auroc > best_auroc
@@ -525,7 +528,7 @@ def loso_cross_validation(windows_by_subject: Dict[str, List[Dict]],
                 hyperparameters, results_dir, is_best=is_best
             )
             if is_best:
-                logger.info(f"    ⭐ New best model! (AUROC: {fold_auroc:.4f})")
+                logger.info(f"  -> New best! AUROC={fold_auroc:.4f}")
         
         pbar.set_postfix({
             "Loss": f"{best_train_loss:.3f}",

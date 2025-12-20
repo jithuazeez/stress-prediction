@@ -4,9 +4,11 @@ PyTorch Dataset for MOMENT foundation model.
 Prepares multivariate time series data for MOMENT classification.
 MOMENT expects input shape: [batch, n_channels, seq_len] where seq_len = 512
 
-We use 3 channels:
-- acc_magnitude: Accelerometer magnitude
+We use 7 channels:
+- acc_x, acc_y, acc_z: Accelerometer axes (separate for directional info)
 - skin_temp: Skin temperature
+- heatflux: Heat flux (thermal energy transfer rate)
+- cbt: Core body temperature
 - hr_bpm: Heart rate derived from PPG via HeartPy (at 1Hz)
 
 Note: 
@@ -40,16 +42,23 @@ class VitaStressMOMENTDataset(Dataset):
     Resamples to 512 samples per window (MOMENT's expected length).
     """
     
-    # Channel names in order
+    # Channel names in order - 7 channels for richer physiological representation
+    # Using separate acc axes instead of magnitude for directional movement info
     # HR from HeartPy replaces raw PPG (much more meaningful at 1Hz)
-    # EDA disabled due to low sampling rate (~0.017 Hz)
-    CHANNELS = ["acc_magnitude", "skin_temp", "hr_bpm"]  # 3 channels
+    CHANNELS = [
+        "acc_x",      # Accelerometer X-axis
+        "acc_y",      # Accelerometer Y-axis  
+        "acc_z",      # Accelerometer Z-axis
+        "skin_temp",  # Skin temperature
+        "heatflux",   # Heat flux (thermal energy transfer rate)
+        "cbt",        # Core body temperature
+        "hr_bpm"      # Heart rate from HeartPy
+    ]  # 7 channels
     
     # DISABLED: EDA has too low sampling rate (~1 sample/minute)
-    # CHANNELS = ["acc_magnitude", "skin_temp", "eda_stress_skin"]  # EDA disabled
-    
     # DISABLED: Raw PPG downsampling destroys cardiac waveform
-    # CHANNELS = ["acc_magnitude", "skin_temp", "eda_stress_skin", "ppg_mean"]  # PPG disabled
+    # OLD 3-channel config:
+    # CHANNELS = ["acc_magnitude", "skin_temp", "hr_bpm"]
     
     def __init__(self, 
                  windows: List[Dict],
@@ -228,11 +237,13 @@ if __name__ == "__main__":
     for i in range(10):
         df = pd.DataFrame({
             "timestamp": pd.date_range("2024-01-01", periods=120, freq="1S"),
-            "acc_magnitude": np.random.normal(1, 0.1, 120),
+            "acc_x": np.random.normal(0, 0.5, 120),
+            "acc_y": np.random.normal(0, 0.5, 120),
+            "acc_z": np.random.normal(1, 0.3, 120),  # Gravity component
             "skin_temp": np.random.normal(32, 1, 120),
+            "heatflux": np.random.normal(70, 30, 120),
+            "cbt": np.random.normal(37.2, 0.1, 120),
             "hr_bpm": np.random.normal(75, 10, 120),  # HR from HeartPy
-            # "eda_stress_skin": np.random.normal(2, 0.5, 120),  # EDA disabled
-            # "ppg_mean": np.random.normal(30000, 1000, 120),  # Raw PPG disabled
         })
         
         dummy_windows.append({

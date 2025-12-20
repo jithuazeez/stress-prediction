@@ -56,13 +56,18 @@ class SSLConfig:
     target_label: str = "label_3min"
     
     # Number of input channels
-    # At 8Hz: acc_magnitude (from 32Hz), skin_temp (from 1Hz), ppg_mean (from 64Hz)
-    n_channels: int = 3
+    # At 8Hz: acc_x, acc_y, acc_z (from 32Hz), skin_temp, heatflux, cbt (from 1Hz), ppg_mean (from 64Hz)
+    # Using separate acc axes instead of magnitude provides more directional movement info
+    n_channels: int = 7
     
     # Feature names for each channel
     feature_names: List[str] = field(default_factory=lambda: [
-        "acc_magnitude",
+        "acc_x",
+        "acc_y", 
+        "acc_z",
         "skin_temp",
+        "heatflux",
+        "cbt",
         "ppg_mean"
     ])
     

@@ -223,9 +223,9 @@ def align_to_8hz(
     Align all signals to 8Hz time grid.
     
     Handles different source sampling rates:
-    - ACC: 32Hz -> 8Hz (downsample)
+    - ACC: 32Hz -> 8Hz (downsample) - now extracts acc_x, acc_y, acc_z separately
     - PPG: 64Hz -> 8Hz (downsample)
-    - Temp: 1Hz -> 8Hz (upsample)
+    - Heatflux (skin_temp, heatflux, cbt): 1Hz -> 8Hz (upsample)
     
     Args:
         signals: Dictionary of signal DataFrames
@@ -244,28 +244,27 @@ def align_to_8hz(
     
     aligned = pd.DataFrame({"timestamp": time_index})
     
-    # Process accelerometer (32Hz -> 8Hz)
+    # Process accelerometer (32Hz -> 8Hz) - extract X, Y, Z separately
     acc_df = signals.get("acc")
     if acc_df is not None and len(acc_df) > 0:
-        # Compute magnitude if not present
-        if "acc_x" in acc_df.columns:
-            acc_mag = np.sqrt(
-                acc_df["acc_x"]**2 + 
-                acc_df["acc_y"]**2 + 
-                acc_df["acc_z"]**2
-            ).values
-        else:
-            acc_mag = np.zeros(len(acc_df))
-        
-        aligned["acc_magnitude"] = resample_signal(
-            acc_mag, acc_df["timestamp"], start_time, end_time, target_rate
-        )
+        # Extract each axis separately for better directional info
+        for col in ["acc_x", "acc_y", "acc_z"]:
+            if col in acc_df.columns:
+                aligned[col] = resample_signal(
+                    acc_df[col].values, acc_df["timestamp"], 
+                    start_time, end_time, target_rate
+                )
+            else:
+                aligned[col] = 0.0
     else:
-        aligned["acc_magnitude"] = 0.0
+        aligned["acc_x"] = 0.0
+        aligned["acc_y"] = 0.0
+        aligned["acc_z"] = 0.0
     
-    # Process temperature (1Hz -> 8Hz)
+    # Process heatflux data (1Hz -> 8Hz) - includes skin_temp, heatflux, cbt
     hf_df = signals.get("heatflux")
     if hf_df is not None and len(hf_df) > 0:
+        # Skin temperature
         if "skin_temp" in hf_df.columns:
             aligned["skin_temp"] = resample_signal(
                 hf_df["skin_temp"].values,
@@ -274,8 +273,30 @@ def align_to_8hz(
             )
         else:
             aligned["skin_temp"] = 0.0
+        
+        # Heat flux - thermal energy transfer rate
+        if "heatflux" in hf_df.columns:
+            aligned["heatflux"] = resample_signal(
+                hf_df["heatflux"].values,
+                hf_df["timestamp"],
+                start_time, end_time, target_rate
+            )
+        else:
+            aligned["heatflux"] = 0.0
+        
+        # Core body temperature
+        if "cbt" in hf_df.columns:
+            aligned["cbt"] = resample_signal(
+                hf_df["cbt"].values,
+                hf_df["timestamp"],
+                start_time, end_time, target_rate
+            )
+        else:
+            aligned["cbt"] = 0.0
     else:
         aligned["skin_temp"] = 0.0
+        aligned["heatflux"] = 0.0
+        aligned["cbt"] = 0.0
     
     # Process PPG (64Hz -> 8Hz)
     ppg_df = signals.get("ppg")

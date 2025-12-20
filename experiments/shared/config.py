@@ -110,11 +110,12 @@ class Config:
     random_seed: int = 42
     
     # Number of channels for deep learning models
+    # Using separate acc axes (x, y, z) instead of magnitude for directional info
+    # Added heatflux and cbt from thermal sensor
     # HR from HeartPy replaces raw PPG (meaningful at 1Hz)
     # EDA disabled due to low sampling rate (~0.017 Hz)
-    n_channels: int = 3  # acc_magnitude, skin_temp, hr_bpm
-    # n_channels: int = 3  # acc_magnitude, skin_temp, eda_stress_skin (EDA disabled)
-    # n_channels: int = 4  # acc_magnitude, skin_temp, eda_stress_skin, ppg_mean (PPG disabled)
+    n_channels: int = 7  # acc_x, acc_y, acc_z, skin_temp, heatflux, cbt, hr_bpm
+    # OLD: n_channels: int = 3  # acc_magnitude, skin_temp, hr_bpm
     
     def __post_init__(self):
         """Ensure paths are Path objects."""
