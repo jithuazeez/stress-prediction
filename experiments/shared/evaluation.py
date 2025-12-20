@@ -168,6 +168,11 @@ def evaluate_predictions(y_true: np.ndarray,
         metrics["specificity"] = float(tn / (tn + fp)) if (tn + fp) > 0 else 0.0
         metrics["false_alarm_rate"] = float(fp / (fp + tn)) if (fp + tn) > 0 else 0.0
         metrics["detection_rate"] = float(tp / (tp + fn)) if (tp + fn) > 0 else 0.0
+        
+        # Geometric mean (gmean) of sensitivity and specificity
+        sensitivity = float(tp / (tp + fn)) if (tp + fn) > 0 else 0.0
+        specificity = float(tn / (tn + fp)) if (tn + fp) > 0 else 0.0
+        metrics["gmean"] = float(np.sqrt(sensitivity * specificity))
     except Exception as e:
         metrics["confusion_error"] = str(e)
     

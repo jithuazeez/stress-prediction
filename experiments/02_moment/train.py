@@ -345,8 +345,8 @@ def loso_cross_validation(windows_by_subject: Dict[str, List[Dict]],
     all_subjects = []
     fold_metrics = []
     
-    # Track best model
-    best_auroc = 0.0
+    # Track best model based on gmean (geometric mean of sensitivity and specificity)
+    best_gmean = 0.0
     best_fold_idx = -1
     
     # Unfreezing strategy (RECOMMENDED: 2 for ~1000 samples)
@@ -459,10 +459,16 @@ def loso_cross_validation(windows_by_subject: Dict[str, List[Dict]],
         
         # Training loop
         best_train_loss = float('inf')
+        epoch_log_interval = 15  # Log every N epochs
+        
         for epoch in range(n_epochs):
             train_loss = train_epoch(model, train_loader, criterion, optimizer, 
                                     device, epoch, n_epochs)
             best_train_loss = min(best_train_loss, train_loss)
+            
+            # Log progress every N epochs
+            if (epoch + 1) % epoch_log_interval == 0 or epoch == 0 or epoch == n_epochs - 1:
+                logger.info(f"  Fold {fold_idx+1} Epoch {epoch+1:3d}/{n_epochs} | Loss: {train_loss:.4f} | Best: {best_train_loss:.4f}")
         
         # Get predictions on TRAINING data to find optimal threshold
         train_y_true, train_y_proba = evaluate_epoch(model, train_loader, device)
@@ -501,23 +507,25 @@ def loso_cross_validation(windows_by_subject: Dict[str, List[Dict]],
         fold_specificity = fold_metric.get("specificity", float("nan"))
         fold_precision = fold_metric.get("precision", float("nan"))
         fold_f1 = fold_metric.get("f1", float("nan"))
-        fold_far = fold_metric.get("false_alarm_rate", float("nan"))
+        fold_gmean = fold_metric.get("gmean", float("nan"))
+        fold_threshold_val = fold_metric.get("threshold", float("nan"))
         
         # Compact single-line logging to avoid Kaggle/Colab output buffer issues
         logger.info(
             f"Fold {fold_idx+1:2d}/{n_subjects} | "
             f"Subj: {test_subject[:8]} | "
-            f"Loss: {best_train_loss:.3f} | "
+            f"Thr: {fold_threshold_val:.3f} | "
             f"AUROC: {fold_auroc:.3f} | "
+            f"F1: {fold_f1:.3f} | "
             f"Sens: {fold_sensitivity:.3f} | "
             f"Spec: {fold_specificity:.3f} | "
-            f"F1: {fold_f1:.3f}"
+            f"Gmean: {fold_gmean:.3f}"
         )
         
-        # Save model checkpoint (every 5th fold + best model)
-        is_best = fold_auroc > best_auroc
+        # Save model checkpoint (every 5th fold + best model based on gmean)
+        is_best = fold_gmean > best_gmean
         if is_best:
-            best_auroc = fold_auroc
+            best_gmean = fold_gmean
             best_fold_idx = fold_idx
         
         # Save checkpoints for every 5th fold and best model
@@ -528,13 +536,13 @@ def loso_cross_validation(windows_by_subject: Dict[str, List[Dict]],
                 hyperparameters, results_dir, is_best=is_best
             )
             if is_best:
-                logger.info(f"  -> New best! AUROC={fold_auroc:.4f}")
+                logger.info(f"  -> New best! Gmean={fold_gmean:.4f} (Sens={fold_sensitivity:.3f}, Spec={fold_specificity:.3f})")
         
         pbar.set_postfix({
             "Loss": f"{best_train_loss:.3f}",
-            "AUROC": f"{fold_auroc:.3f}",
-            "Sens": f"{fold_sensitivity:.3f}",
-            "Spec": f"{fold_specificity:.3f}"
+            "Gmean": f"{fold_gmean:.3f}",
+            "F1": f"{fold_f1:.3f}",
+            "AUROC": f"{fold_auroc:.3f}"
         })
     
     pbar.close()
@@ -582,15 +590,18 @@ def loso_cross_validation(windows_by_subject: Dict[str, List[Dict]],
     logger.info(f"\n--- Threshold-Independent Metrics ---")
     logger.info(f"  AUROC:           {aggregate_metrics.get('auroc', float('nan')):.4f} ± {aggregate_metrics.get('auroc_std', 0):.4f}")
     logger.info(f"  PR-AUC:          {aggregate_metrics.get('pr_auc', float('nan')):.4f} ± {aggregate_metrics.get('pr_auc_std', 0):.4f}")
-    logger.info(f"\n--- Test Set Performance (honest metrics) ---")
+    logger.info(f"\n--- Test Set Performance ---")
+    logger.info(f"  Gmean:           {aggregate_metrics.get('gmean', float('nan')):.4f} ± {aggregate_metrics.get('gmean_std', 0):.4f}")
+    logger.info(f"  F1-Score:        {aggregate_metrics.get('f1', float('nan')):.4f} ± {aggregate_metrics.get('f1_std', 0):.4f}")
     logger.info(f"  Sensitivity:     {aggregate_metrics.get('sensitivity', float('nan')):.4f} ± {aggregate_metrics.get('sensitivity_std', 0):.4f}")
     logger.info(f"  Specificity:     {aggregate_metrics.get('specificity', float('nan')):.4f} ± {aggregate_metrics.get('specificity_std', 0):.4f}")
-    logger.info(f"  False Alarm:     {aggregate_metrics.get('false_alarm_rate', float('nan')):.4f} ± {aggregate_metrics.get('false_alarm_rate_std', 0):.4f}")
     logger.info(f"  Precision:       {aggregate_metrics.get('precision', float('nan')):.4f} ± {aggregate_metrics.get('precision_std', 0):.4f}")
-    logger.info(f"  F1-Score:        {aggregate_metrics.get('f1', float('nan')):.4f} ± {aggregate_metrics.get('f1_std', 0):.4f}")
+    logger.info(f"  Recall:          {aggregate_metrics.get('recall', float('nan')):.4f} ± {aggregate_metrics.get('recall_std', 0):.4f}")
     logger.info(f"  Accuracy:        {aggregate_metrics.get('accuracy', float('nan')):.4f} ± {aggregate_metrics.get('accuracy_std', 0):.4f}")
     logger.info(f"  Balanced Acc:    {aggregate_metrics.get('balanced_accuracy', float('nan')):.4f} ± {aggregate_metrics.get('balanced_accuracy_std', 0):.4f}")
+    logger.info(f"  False Alarm:     {aggregate_metrics.get('false_alarm_rate', float('nan')):.4f} ± {aggregate_metrics.get('false_alarm_rate_std', 0):.4f}")
     logger.info(f"  Avg Train Loss:  {np.mean([f.get('train_loss', float('nan')) for f in fold_metrics]):.4f}")
+    logger.info(f"\nBest Model: Fold {best_fold_idx+1} with Gmean={best_gmean:.4f}")
     logger.info(f"{'='*60}\n")
     
     return {
@@ -602,7 +613,7 @@ def loso_cross_validation(windows_by_subject: Dict[str, List[Dict]],
         "fold_metrics": fold_metrics,
         "hyperparameters": hyperparameters,
         "best_fold_idx": best_fold_idx,
-        "best_auroc": best_auroc,
+        "best_gmean": best_gmean,
         "threshold": mean_threshold,
         "threshold_method": threshold_method
     }
@@ -673,7 +684,7 @@ def main():
         device,
         logger,
         n_epochs=10,
-        batch_size=16,
+        batch_size=32,
         learning_rate=1e-3,
         threshold_method=THRESHOLD_METHOD
     )
