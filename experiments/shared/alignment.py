@@ -29,7 +29,9 @@ HR_DATA_PATHS = [
     Path("../reports/hr_1hz_cleaned.csv"),
      # Kaggle paths (if you upload the HR data)
     # Path("/kaggle/input/hr-data-ppg/hr_1hz_from_ppg.csv"),
-    Path("/kaggle/input/hr-1hz-ppg/hr_1hz_from_ppg.csv")
+    Path("/kaggle/input/hr-1hz-ppg/hr_1hz_from_ppg.csv"),
+    Path("/kaggle/input/hr-data-ppg/hr_1hz_from_ppg.csv")
+    
 ]
 
 # Cache for HR data to avoid reloading
