@@ -22,7 +22,9 @@ from sklearn.metrics import (
 
 def find_optimal_threshold(y_true: np.ndarray,
                             y_proba: np.ndarray,
-                            method: str = "youden") -> Tuple[float, Dict[str, float]]:
+                            method: str = "youden",
+                            min_recall: float = 0.85,
+                            max_fpr: float = 0.20) -> Tuple[float, Dict[str, float]]:
     """
     Find optimal decision threshold from training data.
     
@@ -36,6 +38,10 @@ def find_optimal_threshold(y_true: np.ndarray,
             - "youden": Maximizes Youden's J statistic (TPR - FPR) - balances sensitivity/specificity
             - "f1": Maximizes F1 score
             - "balanced": Threshold where sensitivity ≈ specificity
+            - "geometric_mean": Maximizes G-Mean (sqrt(sensitivity × specificity))
+            - "constrained_gmean": Maximizes G-Mean with recall/FPR constraints (RECOMMENDED)
+        min_recall: Minimum recall/sensitivity required (only for constrained_gmean)
+        max_fpr: Maximum false positive rate allowed (only for constrained_gmean)
     
     Returns:
         Tuple of (optimal_threshold, metrics_at_threshold)
@@ -49,7 +55,7 @@ def find_optimal_threshold(y_true: np.ndarray,
     if n_positive == 0 or n_negative == 0:
         return 0.5, {}
     
-    # Get ROC curve: fpr = false alarm rate, tpr = sensitivity
+    # Get ROC curve: fpr = false alarm rate, tpr = sensitivity/recall
     fpr, tpr, thresholds = roc_curve(y_true, y_proba)
     
     # Calculate specificity (used by multiple methods)
@@ -77,6 +83,33 @@ def find_optimal_threshold(y_true: np.ndarray,
         # Find threshold that maximizes the geometric mean of sensitivity and specificity
         gmean = np.sqrt(tpr * specificity)
         idx = np.argmax(gmean)
+    elif method == "constrained_gmean":
+        # Constrained optimization: maximize G-Mean subject to recall/FPR constraints
+        # This ensures clinical safety (high recall) while controlling false alarms (low FPR)
+        candidates = []
+        
+        for i in range(len(thresholds)):
+            recall = tpr[i]
+            fpr_val = fpr[i]
+            
+            # Check constraints
+            if recall >= min_recall and fpr_val <= max_fpr:
+                gmean = np.sqrt(recall * (1 - fpr_val))
+                candidates.append((i, gmean, recall, fpr_val))
+        
+        if len(candidates) == 0:
+            # No thresholds meet constraints - fall back to unconstrained gmean
+            import warnings
+            warnings.warn(
+                f"No thresholds satisfy constraints (recall≥{min_recall}, FPR≤{max_fpr}). "
+                f"Falling back to unconstrained geometric_mean.",
+                UserWarning
+            )
+            gmean = np.sqrt(tpr * specificity)
+            idx = np.argmax(gmean)
+        else:
+            # Pick candidate with maximum G-Mean
+            idx = max(candidates, key=lambda x: x[1])[0]
     else:
         raise ValueError(f"Unknown method: {method}")
     
@@ -84,10 +117,13 @@ def find_optimal_threshold(y_true: np.ndarray,
     threshold_idx = min(idx, len(thresholds) - 1)
     optimal_threshold = float(thresholds[threshold_idx])
     
+    # Compute metrics at selected threshold
     metrics = {
         "sensitivity": float(tpr[idx]),
+        "recall": float(tpr[idx]),  # Alias for consistency
         "specificity": float(1 - fpr[idx]),
         "false_alarm_rate": float(fpr[idx]),
+        "gmean": float(np.sqrt(tpr[idx] * (1 - fpr[idx]))),
     }
     
     return optimal_threshold, metrics
@@ -132,18 +168,21 @@ def evaluate_predictions(y_true: np.ndarray,
     metrics["n_positive"] = int(n_positive)
     metrics["n_negative"] = int(n_negative)
     
-    # Determine threshold and compute y_pred if needed
-    if threshold is None:
-        threshold = 0.5
-    
-    metrics["threshold"] = float(threshold)
-    
     # Compute y_pred from y_proba if not provided
     if y_pred is None:
         if y_proba is not None:
+            # Use threshold to compute predictions
+            if threshold is None:
+                threshold = 0.5
             y_pred = (y_proba >= threshold).astype(int)
+            metrics["threshold"] = float(threshold)  # Only store if actually used
         else:
             return {"error": "Either y_pred or y_proba must be provided"}
+    else:
+        # y_pred provided - threshold not used for classification
+        # Store it only if explicitly provided (for reporting purposes)
+        if threshold is not None:
+            metrics["threshold"] = float(threshold)
     
     # Classification metrics
     try:

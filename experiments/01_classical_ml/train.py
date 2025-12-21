@@ -155,8 +155,11 @@ def loso_cross_validation(X: np.ndarray,
                           model_class,
                           model_name: str,
                           model_kwargs: Dict,
-                          logger) -> Dict:
-    """Perform Leave-One-Subject-Out cross-validation."""
+                          logger,
+                          threshold_method: str = "constrained_gmean",
+                          min_recall: float = 0.85,
+                          max_fpr: float = 0.20) -> Dict:
+    """Perform Leave-One-Subject-Out cross-validation with optimal thresholding."""
     
     logger.info(f"\n{'='*60}")
     logger.info(f"Training: {model_name.upper()}")
@@ -218,13 +221,29 @@ def loso_cross_validation(X: np.ndarray,
             logger.warning(f"Fold {fold_idx+1}: Training failed for {test_subject[:8]}... - {e}")
             continue
         
-        # Predict
-        y_pred = model.predict(X_test_scaled)
+        # Get probabilities on TRAINING data for threshold selection
+        try:
+            y_train_proba = model.predict_proba(X_train_scaled)[:, 1]
+        except Exception:
+            y_train_proba = model.predict(X_train_scaled).astype(float)
         
+        # Find optimal threshold on TRAINING data
+        from shared.evaluation import find_optimal_threshold
+        optimal_threshold, _ = find_optimal_threshold(
+            y_train, y_train_proba,
+            method=threshold_method,
+            min_recall=min_recall,
+            max_fpr=max_fpr
+        )
+        
+        # Predict on TEST data
         try:
             y_proba = model.predict_proba(X_test_scaled)[:, 1]
         except Exception:
-            y_proba = y_pred.astype(float)
+            y_proba = model.predict(X_test_scaled).astype(float)
+        
+        # Apply optimal threshold from training
+        y_pred = (y_proba >= optimal_threshold).astype(int)
         
         # Store
         all_y_true.extend(y_test)
@@ -232,14 +251,20 @@ def loso_cross_validation(X: np.ndarray,
         all_y_proba.extend(y_proba)
         all_subjects.extend([test_subject] * len(y_test))
         
-        # Fold metrics
-        fold_metric = evaluate_predictions(y_test, y_pred, y_proba, model_name)
+        # Fold metrics with optimal threshold
+        fold_metric = evaluate_predictions(y_test, y_pred, y_proba, model_name, threshold=optimal_threshold)
         fold_metric["subject"] = test_subject
+        fold_metric["optimal_threshold"] = optimal_threshold
         fold_metrics.append(fold_metric)
         
-        # Update progress bar
-        fold_auroc = fold_metric.get("auroc", float("nan"))
-        pbar.set_postfix({"AUROC": f"{fold_auroc:.3f}", "Test": len(y_test)})
+        # Update progress bar with key metrics
+        fold_gmean = fold_metric.get("gmean", float("nan"))
+        fold_recall = fold_metric.get("recall", float("nan"))
+        pbar.set_postfix({
+            "Gmean": f"{fold_gmean:.3f}", 
+            "Recall": f"{fold_recall:.3f}",
+            "Test": len(y_test)
+        })
     
     pbar.close()
     
@@ -252,10 +277,24 @@ def loso_cross_validation(X: np.ndarray,
     all_y_proba = np.array(all_y_proba)
     all_subjects = np.array(all_subjects)
     
-    # Aggregate metrics
-    aggregate_metrics = evaluate_predictions(all_y_true, all_y_pred, all_y_proba, model_name)
+    # Aggregate metrics using fold-level predictions (no re-thresholding)
+    # This ensures: aggregate ≈ average(fold_metrics)
+    aggregate_metrics = evaluate_predictions(
+        all_y_true, 
+        all_y_pred,  # Predictions made with fold-specific thresholds
+        all_y_proba, 
+        model_name
+        # NO threshold - using pre-computed predictions!
+    )
     fold_aggregated = aggregate_fold_metrics(fold_metrics)
     aggregate_metrics.update(fold_aggregated)
+    
+    # Report threshold statistics (each fold used different threshold)
+    fold_thresholds = [f.get("optimal_threshold", 0.5) for f in fold_metrics]
+    aggregate_metrics["threshold_mean"] = float(np.mean(fold_thresholds))
+    aggregate_metrics["threshold_std"] = float(np.std(fold_thresholds))
+    aggregate_metrics["threshold_min"] = float(np.min(fold_thresholds))
+    aggregate_metrics["threshold_max"] = float(np.max(fold_thresholds))
     
     # Log results
     log_model_results(logger, model_name, aggregate_metrics)

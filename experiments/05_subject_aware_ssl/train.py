@@ -288,15 +288,23 @@ def finetune_fold(
     # Get predictions on training data
     y_train_true, _, y_train_proba = evaluate_model(model, train_loader, device)
     
-    # Try different threshold methods
-    threshold_methods = ["youden", "f1", "balanced", "geometric_mean"]
+    # Try different threshold methods including constrained gmean
+    threshold_methods = ["youden", "f1", "balanced", "geometric_mean", "constrained_gmean"]
     threshold_results = {}
     
     logger.info(f"  Comparing threshold methods on training data:")
     
     for method in threshold_methods:
         # Find threshold with this method
-        thresh, _ = find_optimal_threshold(y_train_true, y_train_proba, method=method)
+        if method == "constrained_gmean":
+            thresh, _ = find_optimal_threshold(
+                y_train_true, y_train_proba, 
+                method=method,
+                min_recall=0.85,
+                max_fpr=0.20
+            )
+        else:
+            thresh, _ = find_optimal_threshold(y_train_true, y_train_proba, method=method)
         
         # Apply to training data to evaluate
         _, y_train_pred, _ = evaluate_model(model, train_loader, device, threshold=thresh)
@@ -426,13 +434,22 @@ def loso_evaluation(
     # Create fold metrics DataFrame
     fold_df = pd.DataFrame(fold_metrics)
     
-    # Overall predictions
+    # Overall predictions using fold-level predictions (no re-thresholding)
+    # Ensures: overall_metrics ≈ average(fold_metrics)
     overall_metrics = evaluate_predictions(
         np.array(all_y_true),
-        np.array(all_y_pred),
+        np.array(all_y_pred),  # Predictions made with fold-specific thresholds
         np.array(all_y_proba),
         "ssl_overall"
     )
+    
+    # Add threshold statistics to aggregated metrics
+    fold_thresholds = [f.get("threshold", 0.5) for f in fold_metrics]
+    overall_metrics["threshold_mean"] = float(np.mean(fold_thresholds))
+    overall_metrics["threshold_std"] = float(np.std(fold_thresholds))
+    overall_metrics["threshold_min"] = float(np.min(fold_thresholds))
+    overall_metrics["threshold_max"] = float(np.max(fold_thresholds))
+    
     aggregated.update({f"overall_{k}": v for k, v in overall_metrics.items()})
     
     return aggregated, fold_df, np.array(all_y_true), np.array(all_y_pred), np.array(all_y_proba), np.array(all_subjects)

@@ -304,7 +304,9 @@ def loso_cross_validation(windows_by_subject: Dict[str, List[Dict]],
                           n_epochs: int = 10,
                           batch_size: int = 16,
                           learning_rate: float = 1e-4,
-                          threshold_method: str = "youden") -> Dict:
+                          threshold_method: str = "constrained_gmean",
+                          min_recall: float = 0.85,
+                          max_fpr: float = 0.20) -> Dict:
     """
     Perform LOSO (Leave-One-Subject-Out) cross-validation with MOMENT.
     
@@ -342,6 +344,7 @@ def loso_cross_validation(windows_by_subject: Dict[str, List[Dict]],
     
     all_y_true = []
     all_y_proba = []
+    all_y_pred = []  # Store actual fold-level predictions
     all_subjects = []
     fold_metrics = []
     
@@ -432,7 +435,7 @@ def loso_cross_validation(windows_by_subject: Dict[str, List[Dict]],
         # Class weights
         n_pos = sum(1 for w in train_windows if w.get(config.target_label, 0) == 1)
         n_neg = len(train_windows) - n_pos
-        weight = torch.tensor([1.0, np.sqrt(n_neg / max(n_pos, 1))], dtype=torch.float32).to(device)
+        weight = torch.tensor([1.0,  n_neg / max(n_pos, 1)], dtype=torch.float32).to(device)
         
         criterion = nn.CrossEntropyLoss(weight=weight)
         
@@ -474,22 +477,30 @@ def loso_cross_validation(windows_by_subject: Dict[str, List[Dict]],
         train_y_true, train_y_proba = evaluate_epoch(model, train_loader, device)
         
         # Find optimal threshold on TRAINING data (no data leakage!)
+        # Use constrained_gmean to ensure high recall + low FPR
         fold_threshold, train_thresh_metrics = find_optimal_threshold(
-            train_y_true, train_y_proba, method=threshold_method
+            train_y_true, train_y_proba, 
+            method=threshold_method,
+            min_recall=min_recall if threshold_method == "constrained_gmean" else 0.0,
+            max_fpr=max_fpr if threshold_method == "constrained_gmean" else 1.0
         )
         
         # Evaluate on TEST data using threshold from training
         y_true, y_proba = evaluate_epoch(model, test_loader, device)
         
-        # Store results
+        # Apply fold-specific threshold to get predictions
+        y_pred = (y_proba >= fold_threshold).astype(int)
+        
+        # Store results (including fold-level predictions)
         all_y_true.extend(y_true)
         all_y_proba.extend(y_proba)
+        all_y_pred.extend(y_pred)  # Store actual predictions made with fold threshold
         all_subjects.extend([test_subject] * len(y_true))
         
         # Fold metrics using threshold computed on TRAINING data (no leakage)
         fold_metric = evaluate_predictions(
             y_true, 
-            y_pred=None,  # Will be computed from y_proba using threshold
+            y_pred=y_pred,  # Use predictions made with fold threshold
             y_proba=y_proba, 
             model_name="moment",
             threshold=fold_threshold  # Threshold from TRAINING data
@@ -498,28 +509,33 @@ def loso_cross_validation(windows_by_subject: Dict[str, List[Dict]],
         fold_metric["train_loss"] = best_train_loss
         fold_metric["train_sensitivity"] = train_thresh_metrics.get("sensitivity", float("nan"))
         fold_metric["train_specificity"] = train_thresh_metrics.get("specificity", float("nan"))
+        fold_metric["train_gmean"] = train_thresh_metrics.get("gmean", float("nan"))
         fold_metrics.append(fold_metric)
         
-        # Log fold results - compact format for Kaggle/Colab compatibility
+        # Log fold results - compact format with all key metrics
         fold_auroc = fold_metric.get("auroc", float("nan"))
         fold_pr_auc = fold_metric.get("pr_auc", float("nan"))
         fold_sensitivity = fold_metric.get("sensitivity", float("nan"))
         fold_specificity = fold_metric.get("specificity", float("nan"))
         fold_precision = fold_metric.get("precision", float("nan"))
+        fold_recall = fold_metric.get("recall", float("nan"))
         fold_f1 = fold_metric.get("f1", float("nan"))
         fold_gmean = fold_metric.get("gmean", float("nan"))
+        fold_balanced_acc = fold_metric.get("balanced_accuracy", float("nan"))
         fold_threshold_val = fold_metric.get("threshold", float("nan"))
         
-        # Compact single-line logging to avoid Kaggle/Colab output buffer issues
+        # Compact logging with all requested metrics
         logger.info(
             f"Fold {fold_idx+1:2d}/{n_subjects} | "
             f"Subj: {test_subject[:8]} | "
             f"Thr: {fold_threshold_val:.3f} | "
-            f"AUROC: {fold_auroc:.3f} | "
-            f"F1: {fold_f1:.3f} | "
-            f"Sens: {fold_sensitivity:.3f} | "
-            f"Spec: {fold_specificity:.3f} | "
-            f"Gmean: {fold_gmean:.3f}"
+            f"Recall: {fold_recall:.3f} | "
+            f"Precision: {fold_precision:.3f} | "
+            f"Gmean: {fold_gmean:.3f} | "
+            f"BalAcc: {fold_balanced_acc:.3f} | "
+            f"F1: {fold_f1:.3f}"
+            f"PR-AUC: {fold_pr_auc:.3f}"
+        
         )
         
         # Save model checkpoint (every 5th fold + best model based on gmean)
@@ -542,7 +558,12 @@ def loso_cross_validation(windows_by_subject: Dict[str, List[Dict]],
             "Loss": f"{best_train_loss:.3f}",
             "Gmean": f"{fold_gmean:.3f}",
             "F1": f"{fold_f1:.3f}",
-            "AUROC": f"{fold_auroc:.3f}"
+            "AUROC": f"{fold_auroc:.3f}",
+            "PR-AUC": f"{fold_pr_auc:.3f}",
+            "Recall": f"{fold_recall:.3f}",
+            "Precision": f"{fold_precision:.3f}",
+            "Balanced Accuracy": f"{fold_balanced_acc:.3f}"
+
         })
     
     pbar.close()
@@ -556,26 +577,29 @@ def loso_cross_validation(windows_by_subject: Dict[str, List[Dict]],
     
     # Convert to arrays
     all_y_true = np.array(all_y_true)
+    all_y_pred = np.array(all_y_pred)  # Predictions made with fold-specific thresholds
     all_y_proba = np.array(all_y_proba)
     all_subjects = np.array(all_subjects)
     
-    # Find final threshold on ALL training data combined
-    final_threshold, _ = find_optimal_threshold(all_y_true, all_y_proba, method=threshold_method)
-    
-    # Aggregate metrics using mean threshold from folds
-    mean_threshold = np.mean([f.get("threshold", 0.5) for f in fold_metrics])
-    all_y_pred = (all_y_proba >= mean_threshold).astype(int)
-    
+
+    # Aggregate metrics using ACTUAL fold-level predictions
+    # This ensures: aggregate_metrics ≈ average(fold_metrics)
     aggregate_metrics = evaluate_predictions(
         all_y_true, 
-        y_pred=all_y_pred,
+        y_pred=all_y_pred,  # Use predictions made with fold-specific thresholds
         y_proba=all_y_proba, 
-        model_name="moment",
-        threshold=mean_threshold
+        model_name="moment"
+        # NO threshold parameter - we're using pre-computed predictions!
     )
     fold_aggregated = aggregate_fold_metrics(fold_metrics)
     aggregate_metrics.update(fold_aggregated)
-    aggregate_metrics["mean_threshold"] = float(mean_threshold)
+    
+    # Report threshold statistics (each fold used different threshold)
+    fold_thresholds = [f.get("threshold", 0.5) for f in fold_metrics]
+    aggregate_metrics["threshold_mean"] = float(np.mean(fold_thresholds))
+    aggregate_metrics["threshold_std"] = float(np.std(fold_thresholds))
+    aggregate_metrics["threshold_min"] = float(np.min(fold_thresholds))
+    aggregate_metrics["threshold_max"] = float(np.max(fold_thresholds))
     
     # Log overall performance
     logger.info(f"\n{'='*60}")
@@ -584,9 +608,10 @@ def loso_cross_validation(windows_by_subject: Dict[str, List[Dict]],
     logger.info(f"Total samples:     {len(all_y_true)}")
     logger.info(f"Positive samples:  {sum(all_y_true)} ({100*sum(all_y_true)/len(all_y_true):.1f}%)")
     logger.info(f"Negative samples:  {len(all_y_true)-sum(all_y_true)} ({100*(len(all_y_true)-sum(all_y_true))/len(all_y_true):.1f}%)")
-    logger.info(f"\nThreshold Selection (computed on training data):")
+    logger.info(f"\nThreshold Selection (computed on training data per fold):")
     logger.info(f"  Method:          {threshold_method}")
-    logger.info(f"  Mean Threshold:  {mean_threshold:.4f}")
+    logger.info(f"  Threshold Range: {aggregate_metrics['threshold_min']:.4f} - {aggregate_metrics['threshold_max']:.4f}")
+    logger.info(f"  Threshold Mean:  {aggregate_metrics['threshold_mean']:.4f} ± {aggregate_metrics['threshold_std']:.4f}")
     logger.info(f"\n--- Threshold-Independent Metrics ---")
     logger.info(f"  AUROC:           {aggregate_metrics.get('auroc', float('nan')):.4f} ± {aggregate_metrics.get('auroc_std', 0):.4f}")
     logger.info(f"  PR-AUC:          {aggregate_metrics.get('pr_auc', float('nan')):.4f} ± {aggregate_metrics.get('pr_auc_std', 0):.4f}")
@@ -614,7 +639,10 @@ def loso_cross_validation(windows_by_subject: Dict[str, List[Dict]],
         "hyperparameters": hyperparameters,
         "best_fold_idx": best_fold_idx,
         "best_gmean": best_gmean,
-        "threshold": mean_threshold,
+        "threshold_mean": aggregate_metrics.get("threshold_mean"),
+        "threshold_std": aggregate_metrics.get("threshold_std"),
+        "threshold_min": aggregate_metrics.get("threshold_min"),
+        "threshold_max": aggregate_metrics.get("threshold_max"),
         "threshold_method": threshold_method
     }
 
@@ -674,9 +702,12 @@ def main():
     logger.info("PHASE 2: Model Training (LOSO CV)")
     logger.info("-"*50)
     
-    # Threshold method: "youden" balances sensitivity and specificity
-    # Other options: "f1" (maximize F1), "balanced" (sensitivity ≈ specificity)
-    THRESHOLD_METHOD = "youden"
+    # Threshold method: "constrained_gmean" ensures high recall + low FPR, then maximizes G-Mean
+    # This ensures we catch most stress events (recall≥85%) while controlling false alarms (FPR≤20%)
+    # Other options: "youden", "f1", "balanced", "geometric_mean"
+    THRESHOLD_METHOD = "constrained_gmean"
+    MIN_RECALL = 0.85  # Minimum 85% sensitivity - catch most stress events
+    MAX_FPR = 0.20     # Maximum 20% false positive rate - control false alarms
     
     results = loso_cross_validation(
         windows_by_subject,
@@ -686,7 +717,9 @@ def main():
         n_epochs=10,
         batch_size=32,
         learning_rate=1e-3,
-        threshold_method=THRESHOLD_METHOD
+        threshold_method=THRESHOLD_METHOD,
+        min_recall=MIN_RECALL,
+        max_fpr=MAX_FPR
     )
     
     # Log results
@@ -706,29 +739,57 @@ def main():
     fold_df = pd.DataFrame(results["fold_metrics"])
     fold_df.to_csv(results_dir / "moment_fold_metrics.csv", index=False)
     
-    # Save final model with hyperparameters
-    logger.info("\n" + "-"*50)
-    logger.info("Saving final model and configuration...")
-    logger.info("-"*50)
+    # Document best model location (no "final" model for LOSO)
+    n_folds = len(results["fold_metrics"])
+    logger.info("\n" + "="*60)
+    logger.info("MODEL SAVING SUMMARY")
+    logger.info("="*60)
+    logger.info(f"Best model saved: checkpoints/best_model.pt")
+    logger.info(f"  - Fold: {results['best_fold_idx']} (Subject: {results['fold_metrics'][results['best_fold_idx']]['subject']})")
+    logger.info(f"  - G-mean: {results['best_gmean']:.4f}")
+    logger.info(f"  - Trained on: {n_folds-1} subjects (LOSO)")
+    logger.info(f"\nTo use for inference:")
+    logger.info(f"  checkpoint = torch.load('checkpoints/best_model.pt')")
+    logger.info(f"  model.load_state_dict(checkpoint['model_state_dict'])")
+    logger.info(f"\nNote: LOSO models are for evaluation, not deployment.")
+    logger.info(f"      For deployment, retrain on all {n_folds} subjects.")
+    logger.info("="*60)
     
-    # Create a new model instance for the final save (using last trained architecture)
-    final_model = create_moment_model(
-        n_channels=config.n_channels,
-        num_classes=2,
-        freeze_backbone=True,
-        unfreeze_last_n_blocks=2  # Match training configuration
-    ).to(device)
+    # Save configuration summary
+    config_dir = results_dir / "config"
+    config_dir.mkdir(parents=True, exist_ok=True)
     
-    model_path, config_path, summary_path = save_final_model_and_config(
-        final_model,
-        results["hyperparameters"],
-        results["metrics"],
-        results_dir
-    )
+    config_path = config_dir / "training_config.json"
+    with open(config_path, 'w') as f:
+        json.dump(results["hyperparameters"], f, indent=2, default=str)
     
-    logger.info(f"✅ Model saved to: {model_path}")
-    logger.info(f"✅ Hyperparameters saved to: {config_path}")
-    logger.info(f"✅ Model summary saved to: {summary_path}")
+    summary_path = config_dir / "training_summary.txt"
+    with open(summary_path, 'w') as f:
+        f.write("MOMENT LOSO CROSS-VALIDATION SUMMARY\n")
+        f.write("="*60 + "\n\n")
+        
+        f.write("HYPERPARAMETERS\n")
+        f.write("-"*60 + "\n")
+        for key, value in results["hyperparameters"].items():
+            f.write(f"{key:.<40} {value}\n")
+        
+        f.write("\nAGGREGATE METRICS\n")
+        f.write("-"*60 + "\n")
+        for key, value in results["metrics"].items():
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                f.write(f"{key:.<40} {value:.4f}\n")
+            else:
+                f.write(f"{key:.<40} {value}\n")
+        
+        f.write("\nBEST MODEL INFO\n")
+        f.write("-"*60 + "\n")
+        f.write(f"Location: checkpoints/best_model.pt\n")
+        f.write(f"Fold: {results['best_fold_idx']}\n")
+        f.write(f"Test Subject: {results['fold_metrics'][results['best_fold_idx']]['subject']}\n")
+        f.write(f"G-mean: {results['best_gmean']:.4f}\n")
+    
+    logger.info(f"\n✅ Configuration saved to: {config_path}")
+    logger.info(f"✅ Summary saved to: {summary_path}")
     
     log_experiment_end(logger, "MOMENT FOUNDATION MODEL TRAINING")
     logger.info(f"All results saved to: {results_dir}")

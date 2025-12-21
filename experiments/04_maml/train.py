@@ -525,19 +525,23 @@ def loso_cross_validation(features_by_subject: Dict[str, Tuple[np.ndarray, np.nd
     all_y_proba = np.array(all_y_proba)
     all_subjects = np.array(all_subjects)
     
-    # Final threshold (mean of fold thresholds)
-    final_threshold = np.mean(fold_thresholds)
-    logger.info(f"\nFinal threshold (mean of folds): {final_threshold:.4f}")
-    
-    # Aggregate metrics
+    # Aggregate metrics using fold-level predictions (no re-thresholding)
     aggregate_metrics = evaluate_predictions(
-        all_y_true, all_y_pred, all_y_proba, "maml",
-        threshold=final_threshold
+        all_y_true, 
+        all_y_pred,  # Predictions made with fold-specific thresholds
+        all_y_proba, 
+        "maml"
+        # NO threshold - using pre-computed predictions!
     )
     fold_aggregated = aggregate_fold_metrics(fold_metrics)
     aggregate_metrics.update(fold_aggregated)
     aggregate_metrics["threshold_method"] = threshold_method
-    aggregate_metrics["final_threshold"] = final_threshold
+    
+    # Report threshold statistics
+    aggregate_metrics["threshold_mean"] = float(np.mean(fold_thresholds))
+    aggregate_metrics["threshold_std"] = float(np.std(fold_thresholds))
+    aggregate_metrics["threshold_min"] = float(np.min(fold_thresholds))
+    aggregate_metrics["threshold_max"] = float(np.max(fold_thresholds))
     
     return {
         "metrics": aggregate_metrics,
