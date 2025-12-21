@@ -29,7 +29,7 @@ class SSLConfig:
     # data_path: Path = Path("/Users/jithuazeez/Documents/Msc/Dissertation/Datasets/VitaStress/data")
     # data_path: Path = Path("/kaggle/input/vitastress/VitaStress/data")
     # data_path: Path = Path("/kaggle/input/vitastess2/VitaStress/data")
-    data_path: Path = Path("/kaggle/input/vitastess/VitaStress/data")
+    data_path: Path = Path("/kaggle/input/vitastress/VitaStress/data")
     
 
     # results_base_path: Path = Path("/Users/jithuazeez/Documents/Msc/Dissertation/experiments")
