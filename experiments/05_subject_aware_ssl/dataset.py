@@ -223,8 +223,8 @@ def align_to_8hz(
     Align all signals to 8Hz time grid.
     
     Handles different source sampling rates:
-    - ACC: 32Hz -> 8Hz (downsample) - now extracts acc_x, acc_y, acc_z separately
-    - PPG: 64Hz -> 8Hz (downsample)
+    - ACC: 32Hz -> 8Hz (downsample) - extracts acc_x, acc_y, acc_z separately
+    - HR/HRV: 1Hz -> 8Hz (upsample) - hr_bpm and rmssd from HeartPy
     - Heatflux (skin_temp, heatflux, cbt): 1Hz -> 8Hz (upsample)
     
     Args:
@@ -298,19 +298,32 @@ def align_to_8hz(
         aligned["heatflux"] = 0.0
         aligned["cbt"] = 0.0
     
-    # Process PPG (64Hz -> 8Hz)
-    ppg_df = signals.get("ppg")
-    if ppg_df is not None and len(ppg_df) > 0:
-        if "value" in ppg_df.columns:
-            aligned["ppg_mean"] = resample_signal(
-                ppg_df["value"].values,
-                ppg_df["timestamp"],
+    # Process HR and HRV from HeartPy (1Hz -> 8Hz)
+    # Much better than downsampling raw PPG waveform!
+    hr_df = signals.get("hr")
+    if hr_df is not None and len(hr_df) > 0:
+        # Heart rate
+        if "hr_bpm" in hr_df.columns:
+            aligned["hr_bpm"] = resample_signal(
+                hr_df["hr_bpm"].values,
+                hr_df["timestamp"],
                 start_time, end_time, target_rate
             )
         else:
-            aligned["ppg_mean"] = 0.0
+            aligned["hr_bpm"] = 0.0
+        
+        # HRV (RMSSD) - parasympathetic activity indicator
+        if "rmssd" in hr_df.columns:
+            aligned["rmssd"] = resample_signal(
+                hr_df["rmssd"].values,
+                hr_df["timestamp"],
+                start_time, end_time, target_rate
+            )
+        else:
+            aligned["rmssd"] = 0.0
     else:
-        aligned["ppg_mean"] = 0.0
+        aligned["hr_bpm"] = 0.0
+        aligned["rmssd"] = 0.0
     
     return aligned
 
@@ -341,6 +354,11 @@ def load_windows_at_8hz(
         signals = load_raw_signals(subject_folder)
         subject_id = signals["subject_id"]
         subject_to_idx[subject_id] = idx
+        
+        # Load HR/HRV data (extracted from PPG via HeartPy)
+        from shared.alignment import get_hr_for_subject
+        hr_df = get_hr_for_subject(subject_id)
+        signals["hr"] = hr_df  # Add to signals dict
         
         try:
             start, end = get_experiment_time_range(signals)

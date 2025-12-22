@@ -88,14 +88,17 @@ class ConvStressClassifier(nn.Module):
     """
     1D CNN classifier for time series input with MAML.
     
-    Designed for raw signal input (4 channels × 120 timesteps).
+    Designed for raw signal input (8 channels × 120 timesteps).
     Uses 4 conv layers following the MAML paper's image classifier architecture.
+    
+    8 channels: acc_x, acc_y, acc_z, skin_temp, heatflux, cbt, hr_bpm, rmssd
+    (Same as MOMENT and SSL experiments for consistency)
     
     NO batch normalization (critical for MAML).
     """
     
     def __init__(self,
-                 n_channels: int = 4,
+                 n_channels: int = 8,
                  seq_len: int = 120,
                  n_classes: int = 2,
                  hidden_filters: int = 32):
@@ -103,7 +106,8 @@ class ConvStressClassifier(nn.Module):
         Initialize CNN classifier.
         
         Args:
-            n_channels: Number of input channels (4: acc, temp, eda, ppg)
+            n_channels: Number of input channels (8: acc_x, acc_y, acc_z, 
+                       skin_temp, heatflux, cbt, hr_bpm, rmssd)
             seq_len: Sequence length (120 for 2-min window at 1Hz)
             n_classes: Number of output classes
             hidden_filters: Number of filters in conv layers
@@ -156,7 +160,7 @@ class ConvStressClassifier(nn.Module):
 
 def create_maml_model(model_type: str = "mlp",
                       input_dim: int = 61,
-                      n_channels: int = 4,
+                      n_channels: int = 8,
                       seq_len: int = 120,
                       n_classes: int = 2,
                       hidden_dim: int = 64) -> nn.Module:
@@ -166,7 +170,8 @@ def create_maml_model(model_type: str = "mlp",
     Args:
         model_type: "mlp" (uses extracted features) or "cnn" (uses raw signals)
         input_dim: Input dimension for MLP (default 61 features)
-        n_channels: Number of channels for CNN
+        n_channels: Number of channels for CNN (default 8: acc_x, acc_y, acc_z,
+                   skin_temp, heatflux, cbt, hr_bpm, rmssd - same as MOMENT/SSL)
         seq_len: Sequence length for CNN
         n_classes: Number of output classes
         hidden_dim: Hidden dimension for MLP
@@ -204,9 +209,9 @@ if __name__ == "__main__":
     print(f"   Output shape: {out_mlp.shape}")
     
     # Test CNN with raw signals
-    print("\n2. CNN with raw signals (4 channels × 120 timesteps):")
-    cnn = ConvStressClassifier(n_channels=4, seq_len=120, n_classes=2)
-    x_cnn = torch.randn(8, 4, 120)  # batch of 8
+    print("\n2. CNN with raw signals (8 channels × 120 timesteps):")
+    cnn = ConvStressClassifier(n_channels=8, seq_len=120, n_classes=2)
+    x_cnn = torch.randn(8, 8, 120)  # batch of 8, 8 channels
     out_cnn = cnn(x_cnn)
     print(f"   Input shape: {x_cnn.shape}")
     print(f"   Output shape: {out_cnn.shape}")

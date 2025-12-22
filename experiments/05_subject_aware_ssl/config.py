@@ -28,8 +28,8 @@ class SSLConfig:
     # results_path: Path = Path("/Users/jithuazeez/Documents/Msc/Dissertation/experiments/05_subject_aware_ssl/results")
     # data_path: Path = Path("/Users/jithuazeez/Documents/Msc/Dissertation/Datasets/VitaStress/data")
     # data_path: Path = Path("/kaggle/input/vitastress/VitaStress/data")
-    # data_path: Path = Path("/kaggle/input/vitastess2/VitaStress/data")
-    data_path: Path = Path("/kaggle/input/vitastress/VitaStress/data")
+    data_path: Path = Path("/kaggle/input/vitastess2/VitaStress/data")
+    # data_path: Path = Path("/kaggle/input/vitastress/VitaStress/data")
     
 
     # results_base_path: Path = Path("/Users/jithuazeez/Documents/Msc/Dissertation/experiments")
@@ -59,9 +59,11 @@ class SSLConfig:
     target_label: str = "label_3min"
     
     # Number of input channels
-    # At 8Hz: acc_x, acc_y, acc_z (from 32Hz), skin_temp, heatflux, cbt (from 1Hz), ppg_mean (from 64Hz)
+    # At 8Hz: acc_x, acc_y, acc_z (from 32Hz), skin_temp, heatflux, cbt (from 1Hz upsampled),
+    #         hr_bpm, rmssd (from HeartPy at 1Hz, upsampled to 8Hz)
     # Using separate acc axes instead of magnitude provides more directional movement info
-    n_channels: int = 7
+    # Using HR and HRV instead of raw PPG (more meaningful at 8Hz than downsampled PPG waveform)
+    n_channels: int = 8
     
     # Feature names for each channel
     feature_names: List[str] = field(default_factory=lambda: [
@@ -71,7 +73,8 @@ class SSLConfig:
         "skin_temp",
         "heatflux",
         "cbt",
-        "ppg_mean"
+        "hr_bpm",    # Heart rate from HeartPy
+        "rmssd"      # HRV (RMSSD) - parasympathetic activity
     ])
     
     # ==========================================================================

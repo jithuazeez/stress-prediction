@@ -4,12 +4,13 @@ PyTorch Dataset for MOMENT foundation model.
 Prepares multivariate time series data for MOMENT classification.
 MOMENT expects input shape: [batch, n_channels, seq_len] where seq_len = 512
 
-We use 7 channels:
+We use 8 channels:
 - acc_x, acc_y, acc_z: Accelerometer axes (separate for directional info)
 - skin_temp: Skin temperature
 - heatflux: Heat flux (thermal energy transfer rate)
 - cbt: Core body temperature
 - hr_bpm: Heart rate derived from PPG via HeartPy (at 1Hz)
+- rmssd: HRV (Root Mean Square of Successive Differences) - parasympathetic activity
 
 Note: 
 - Raw PPG is excluded because downsampling from 64Hz to 1Hz destroys the cardiac waveform.
@@ -42,9 +43,9 @@ class VitaStressMOMENTDataset(Dataset):
     Resamples to 512 samples per window (MOMENT's expected length).
     """
     
-    # Channel names in order - 7 channels for richer physiological representation
+    # Channel names in order - 8 channels for richer physiological representation
     # Using separate acc axes instead of magnitude for directional movement info
-    # HR from HeartPy replaces raw PPG (much more meaningful at 1Hz)
+    # HR and HRV (RMSSD) from HeartPy (much more meaningful at 1Hz than raw PPG)
     CHANNELS = [
         "acc_x",      # Accelerometer X-axis
         "acc_y",      # Accelerometer Y-axis  
@@ -52,13 +53,15 @@ class VitaStressMOMENTDataset(Dataset):
         "skin_temp",  # Skin temperature
         "heatflux",   # Heat flux (thermal energy transfer rate)
         "cbt",        # Core body temperature
-        "hr_bpm"      # Heart rate from HeartPy
-    ]  # 7 channels
+        "hr_bpm",     # Heart rate from HeartPy
+        "rmssd"       # HRV (RMSSD) - parasympathetic activity indicator
+    ]  # 8 channels
     
     # DISABLED: EDA has too low sampling rate (~1 sample/minute)
     # DISABLED: Raw PPG downsampling destroys cardiac waveform
-    # OLD 3-channel config:
-    # CHANNELS = ["acc_magnitude", "skin_temp", "hr_bpm"]
+    # OLD configs:
+    # 3-channel: CHANNELS = ["acc_magnitude", "skin_temp", "hr_bpm"]
+    # 7-channel: CHANNELS = ["acc_x", "acc_y", "acc_z", "skin_temp", "heatflux", "cbt", "hr_bpm"]
     
     def __init__(self, 
                  windows: List[Dict],
