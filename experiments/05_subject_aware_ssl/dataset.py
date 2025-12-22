@@ -184,6 +184,17 @@ def resample_signal(
     Returns:
         Resampled signal array
     """
+    # Fix timezone mismatch: Convert both to timezone-naive
+    timestamps = pd.to_datetime(timestamps)
+    if timestamps.dt.tz is not None:
+        timestamps = timestamps.dt.tz_localize(None)
+    
+    if isinstance(target_start, pd.Timestamp) and target_start.tz is not None:
+        target_start = target_start.tz_localize(None)
+    
+    if isinstance(target_end, pd.Timestamp) and target_end.tz is not None:
+        target_end = target_end.tz_localize(None)
+    
     # Convert timestamps to seconds from start
     t_original = (timestamps - target_start).dt.total_seconds().values
     
