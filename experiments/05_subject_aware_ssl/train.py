@@ -185,6 +185,9 @@ def finetune_fold(
     """
     Fine-tune on one LOSO fold.
     
+    Uses constrained G-mean thresholding (Recall ≥ 0.85, FPR ≤ 0.20) 
+    for consistency with MOMENT and Classical ML experiments.
+    
     Args:
         encoder: Pre-trained encoder (will be copied, not modified)
         train_windows: Training windows
@@ -288,50 +291,28 @@ def finetune_fold(
     # Get predictions on training data
     y_train_true, _, y_train_proba = evaluate_model(model, train_loader, device)
     
-    # Try different threshold methods including constrained gmean
-    threshold_methods = ["youden", "f1", "balanced", "geometric_mean", "constrained_gmean"]
-    threshold_results = {}
+    # Use constrained G-mean threshold (consistent with MOMENT and Classical ML)
+    # This ensures high recall (≥85%) while controlling false alarm rate (≤20%)
+    optimal_threshold, train_thresh_metrics = find_optimal_threshold(
+        y_train_true, 
+        y_train_proba, 
+        method="constrained_gmean",
+        min_recall=0.85,
+        max_fpr=0.20
+    )
     
-    logger.info(f"  Comparing threshold methods on training data:")
+    # Apply threshold to training data to verify constraints
+    _, y_train_pred, _ = evaluate_model(model, train_loader, device, threshold=optimal_threshold)
+    train_metrics = compute_training_metrics(y_train_true, y_train_pred, y_train_proba)
     
-    for method in threshold_methods:
-        # Find threshold with this method
-        if method == "constrained_gmean":
-            thresh, _ = find_optimal_threshold(
-                y_train_true, y_train_proba, 
-                method=method,
-                min_recall=0.85,
-                max_fpr=0.20
-            )
-        else:
-            thresh, _ = find_optimal_threshold(y_train_true, y_train_proba, method=method)
-        
-        # Apply to training data to evaluate
-        _, y_train_pred, _ = evaluate_model(model, train_loader, device, threshold=thresh)
-        train_metrics = compute_training_metrics(y_train_true, y_train_pred, y_train_proba)
-        
-        threshold_results[method] = {
-            "threshold": thresh,
-            "gmean": train_metrics["gmean"],
-            "recall": train_metrics["recall"],
-            "precision": train_metrics["precision"],
-            "balanced_accuracy": train_metrics["balanced_accuracy"],
-            "specificity": train_metrics["specificity"]
-        }
-        
-        logger.info(
-            f"    {method:15s}: thresh={thresh:.3f}, "
-            f"G-mean={train_metrics['gmean']:.3f}, "
-            f"Recall={train_metrics['recall']:.3f}, "
-            f"Prec={train_metrics['precision']:.3f}, "
-            f"Spec={train_metrics['specificity']:.3f}"
-        )
-    
-    # Choose best method based on G-mean (highest balance)
-    best_method = max(threshold_results.keys(), key=lambda m: threshold_results[m]["gmean"])
-    optimal_threshold = threshold_results[best_method]["threshold"]
-    
-    logger.info(f"  → Selected method: {best_method} with G-mean={threshold_results[best_method]['gmean']:.3f}")
+    logger.info(f"  Threshold optimization (constrained G-mean):")
+    logger.info(f"    Threshold: {optimal_threshold:.3f}")
+    logger.info(f"    G-mean:    {train_metrics['gmean']:.3f}")
+    logger.info(f"    Recall:    {train_metrics['recall']:.3f} (target: ≥0.85)")
+    logger.info(f"    Precision: {train_metrics['precision']:.3f}")
+    logger.info(f"    Specificity: {train_metrics['specificity']:.3f}")
+    if train_metrics.get('false_alarm_rate') is not None:
+        logger.info(f"    FPR:       {train_metrics.get('false_alarm_rate', 1 - train_metrics['specificity']):.3f} (target: ≤0.20)")
     
     # Evaluate on test set with selected threshold
     y_true, y_pred, y_proba = evaluate_model(model, test_loader, device, threshold=optimal_threshold)
@@ -344,14 +325,15 @@ def finetune_fold(
     metrics["gmean"] = test_metrics["gmean"]
     
     # Save threshold method info
-    metrics["threshold_method"] = best_method
+    metrics["threshold_method"] = "constrained_gmean"
     metrics["optimal_threshold"] = optimal_threshold
     metrics["train_epochs"] = epoch + 1
     
-    # Add all threshold comparison results
-    for method, results in threshold_results.items():
-        metrics[f"train_{method}_threshold"] = results["threshold"]
-        metrics[f"train_{method}_gmean"] = results["gmean"]
+    # Add training metrics for reference
+    metrics["train_gmean"] = train_metrics["gmean"]
+    metrics["train_recall"] = train_metrics["recall"]
+    metrics["train_precision"] = train_metrics["precision"]
+    metrics["train_specificity"] = train_metrics["specificity"]
     
     return metrics, y_true, y_pred, y_proba
 
@@ -380,6 +362,10 @@ def loso_evaluation(
     """
     logger.info(f"\n{'='*60}")
     logger.info("LOSO CROSS-VALIDATION")
+    logger.info(f"{'='*60}")
+    logger.info(f"Threshold method: constrained_gmean")
+    logger.info(f"  Constraints: Recall ≥ 0.85, FPR ≤ 0.20")
+    logger.info(f"  Applied per-fold on TRAINING data (no leakage)")
     logger.info(f"{'='*60}")
     
     subjects = list(subject_to_idx.keys())
@@ -423,7 +409,7 @@ def loso_evaluation(
             f"PR-AUC={metrics.get('pr_auc', 0):.3f}, "
             f"F1={metrics.get('f1', 0):.3f}, "
             f"G-mean={metrics.get('gmean', 0):.3f}, "
-            f"Method={metrics.get('threshold_method', 'unknown')}"
+            f"Threshold={metrics.get('optimal_threshold', 0):.3f}"
         )
     
     pbar.close()
@@ -444,11 +430,15 @@ def loso_evaluation(
     )
     
     # Add threshold statistics to aggregated metrics
+    # All folds use constrained_gmean (Recall ≥ 0.85, FPR ≤ 0.20)
     fold_thresholds = [f.get("threshold", 0.5) for f in fold_metrics]
     overall_metrics["threshold_mean"] = float(np.mean(fold_thresholds))
     overall_metrics["threshold_std"] = float(np.std(fold_thresholds))
     overall_metrics["threshold_min"] = float(np.min(fold_thresholds))
     overall_metrics["threshold_max"] = float(np.max(fold_thresholds))
+    overall_metrics["threshold_method"] = "constrained_gmean"
+    overall_metrics["min_recall_constraint"] = 0.85
+    overall_metrics["max_fpr_constraint"] = 0.20
     
     aggregated.update({f"overall_{k}": v for k, v in overall_metrics.items()})
     
