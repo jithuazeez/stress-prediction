@@ -714,7 +714,7 @@ def main():
         config,
         device,
         logger,
-        n_epochs=50,
+        n_epochs=100,
         batch_size=16,
         learning_rate=1e-3,
         threshold_method=THRESHOLD_METHOD,
