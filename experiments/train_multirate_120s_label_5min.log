@@ -1,0 +1,344 @@
+2025-12-23 18:26:26 | [32mINFO[0m | ======================================================================
+2025-12-23 18:26:26 | [32mINFO[0m |   MULTI-RATE LATE FUSION TRAINING
+2025-12-23 18:26:26 | [32mINFO[0m |   Started at: 2025-12-23 18:26:26
+2025-12-23 18:26:26 | [32mINFO[0m | ======================================================================
+2025-12-23 18:26:26 | [32mINFO[0m | Configuration:
+2025-12-23 18:26:26 | [32mINFO[0m |   Window: 120s
+2025-12-23 18:26:26 | [32mINFO[0m |   Horizon: 5 min
+2025-12-23 18:26:26 | [32mINFO[0m |   Target: label_5min
+2025-12-23 18:26:26 | [32mINFO[0m |   ACC samples: 3840 (3 channels at 32Hz)
+2025-12-23 18:26:26 | [32mINFO[0m |   Physio samples: 120 (5 channels at 1Hz)
+2025-12-23 18:26:26 | [32mINFO[0m |   Threshold method: constrained_gmean (min_recall=0.85, max_fpr=0.20)
+2025-12-23 18:26:26 | [32mINFO[0m |   Channels: acc_x, acc_y, acc_z, skin_temp, heatflux, cbt, hr_bpm, rmssd
+2025-12-23 18:26:26 | [32mINFO[0m | Device: cpu
+2025-12-23 18:26:26 | [32mINFO[0m | 
+--------------------------------------------------
+2025-12-23 18:26:26 | [32mINFO[0m | Loading data at native rates...
+2025-12-23 18:26:26 | [32mINFO[0m | --------------------------------------------------
+2025-12-23 18:28:20 | [32mINFO[0m | ======================================================================
+2025-12-23 18:28:20 | [32mINFO[0m |   MULTI-RATE LATE FUSION TRAINING
+2025-12-23 18:28:20 | [32mINFO[0m |   Started at: 2025-12-23 18:28:20
+2025-12-23 18:28:20 | [32mINFO[0m | ======================================================================
+2025-12-23 18:28:20 | [32mINFO[0m | Configuration:
+2025-12-23 18:28:20 | [32mINFO[0m |   Window: 120s
+2025-12-23 18:28:20 | [32mINFO[0m |   Horizon: 5 min
+2025-12-23 18:28:20 | [32mINFO[0m |   Target: label_5min
+2025-12-23 18:28:20 | [32mINFO[0m |   ACC samples: 3840 (3 channels at 32Hz)
+2025-12-23 18:28:20 | [32mINFO[0m |   Physio samples: 120 (5 channels at 1Hz)
+2025-12-23 18:28:20 | [32mINFO[0m |   Threshold method: constrained_gmean (min_recall=0.85, max_fpr=0.20)
+2025-12-23 18:28:20 | [32mINFO[0m |   Channels: acc_x, acc_y, acc_z, skin_temp, heatflux, cbt, hr_bpm, rmssd
+2025-12-23 18:28:20 | [32mINFO[0m | Device: mps
+2025-12-23 18:28:20 | [32mINFO[0m | 
+--------------------------------------------------
+2025-12-23 18:28:20 | [32mINFO[0m | Loading data at native rates...
+2025-12-23 18:28:20 | [32mINFO[0m | --------------------------------------------------
+2025-12-23 18:28:35 | [32mINFO[0m | Loaded 1717 windows from 21 subjects
+2025-12-23 18:28:35 | [32mINFO[0m | 
+Model parameters: 227,650
+2025-12-23 18:28:35 | [32mINFO[0m | 
+============================================================
+2025-12-23 18:28:35 | [32mINFO[0m | LOSO CROSS-VALIDATION
+2025-12-23 18:28:35 | [32mINFO[0m | ============================================================
+2025-12-23 18:28:36 | [32mINFO[0m |   Training fold_0a73ef1b...
+2025-12-23 18:28:41 | [32mINFO[0m |     Epoch   1/100: Loss=0.6129, Recall=0.510, Precision=0.129, G-mean=0.513, BalAcc=0.513
+2025-12-23 18:28:47 | [32mINFO[0m |     Epoch  10/100: Loss=0.5201, Recall=0.354, Precision=0.117, G-mean=0.469, BalAcc=0.488
+2025-12-23 18:28:53 | [32mINFO[0m |     Epoch  20/100: Loss=0.4435, Recall=0.226, Precision=0.103, G-mean=0.404, BalAcc=0.473
+2025-12-23 18:28:58 | [32mINFO[0m |     Epoch  30/100: Loss=0.4690, Recall=0.269, Precision=0.117, G-mean=0.436, BalAcc=0.489
+2025-12-23 18:29:05 | [32mINFO[0m |     Epoch  40/100: Loss=0.4233, Recall=0.259, Precision=0.132, G-mean=0.444, BalAcc=0.510
+2025-12-23 18:29:11 | [32mINFO[0m |     Epoch  50/100: Loss=0.4044, Recall=0.275, Precision=0.116, G-mean=0.443, BalAcc=0.494
+2025-12-23 18:29:17 | [32mINFO[0m |     Epoch  60/100: Loss=0.3596, Recall=0.338, Precision=0.118, G-mean=0.466, BalAcc=0.490
+2025-12-23 18:29:23 | [32mINFO[0m |     Epoch  70/100: Loss=0.3672, Recall=0.259, Precision=0.113, G-mean=0.428, BalAcc=0.483
+2025-12-23 18:29:30 | [32mINFO[0m |     Epoch  80/100: Loss=0.3749, Recall=0.264, Precision=0.117, G-mean=0.434, BalAcc=0.489
+2025-12-23 18:29:32 | [32mINFO[0m |     Early stopping at epoch 84
+2025-12-23 18:29:33 | [32mINFO[0m |   Constrained G-mean threshold: 0.6978 (min_recall=0.85, max_fpr=0.20)
+2025-12-23 18:29:33 | [32mINFO[0m |   Training metrics: G-mean=0.437, Recall=0.265, Precision=0.119, Specificity=0.721
+2025-12-23 18:29:33 | [32mINFO[0m |   0a73ef1b: AUROC=0.991, PR-AUC=0.933, F1=0.769, G-mean=0.960, Recall=1.000, Method=constrained_gmean
+2025-12-23 18:29:33 | [32mINFO[0m |   Training fold_3e775b57...
+2025-12-23 18:29:34 | [32mINFO[0m |     Epoch   1/100: Loss=0.6365, Recall=0.470, Precision=0.130, G-mean=0.511, BalAcc=0.513
+2025-12-23 18:29:40 | [32mINFO[0m |     Epoch  10/100: Loss=0.5023, Recall=0.405, Precision=0.115, G-mean=0.473, BalAcc=0.479
+2025-12-23 18:29:47 | [32mINFO[0m |     Epoch  20/100: Loss=0.4843, Recall=0.307, Precision=0.124, G-mean=0.460, BalAcc=0.499
+2025-12-23 18:29:53 | [32mINFO[0m |     Epoch  30/100: Loss=0.4490, Recall=0.330, Precision=0.134, G-mean=0.481, BalAcc=0.516
+2025-12-23 18:30:01 | [32mINFO[0m |     Epoch  40/100: Loss=0.4439, Recall=0.305, Precision=0.118, G-mean=0.454, BalAcc=0.490
+2025-12-23 18:30:07 | [32mINFO[0m |     Epoch  50/100: Loss=0.3881, Recall=0.313, Precision=0.143, G-mean=0.478, BalAcc=0.521
+2025-12-23 18:30:13 | [32mINFO[0m |     Epoch  60/100: Loss=0.3722, Recall=0.312, Precision=0.120, G-mean=0.459, BalAcc=0.494
+2025-12-23 18:30:18 | [32mINFO[0m |     Epoch  70/100: Loss=0.3640, Recall=0.281, Precision=0.113, G-mean=0.439, BalAcc=0.483
+2025-12-23 18:30:24 | [32mINFO[0m |     Epoch  80/100: Loss=0.3626, Recall=0.274, Precision=0.130, G-mean=0.449, BalAcc=0.505
+2025-12-23 18:30:31 | [32mINFO[0m |     Epoch  90/100: Loss=0.3327, Recall=0.226, Precision=0.103, G-mean=0.404, BalAcc=0.474
+2025-12-23 18:30:38 | [32mINFO[0m |     Epoch 100/100: Loss=0.3392, Recall=0.283, Precision=0.132, G-mean=0.456, BalAcc=0.510
+2025-12-23 18:30:39 | [32mINFO[0m |   Constrained G-mean threshold: 0.8444 (min_recall=0.85, max_fpr=0.20)
+2025-12-23 18:30:39 | [32mINFO[0m |   Training metrics: G-mean=0.405, Recall=0.229, Precision=0.104, Specificity=0.716
+2025-12-23 18:30:39 | [32mINFO[0m |   3e775b57: AUROC=0.740, PR-AUC=0.305, F1=0.154, G-mean=0.312, Recall=0.100, Method=constrained_gmean
+2025-12-23 18:30:39 | [32mINFO[0m |   Training fold_3f27501c...
+2025-12-23 18:30:40 | [32mINFO[0m |     Epoch   1/100: Loss=0.6240, Recall=0.374, Precision=0.128, G-mean=0.493, BalAcc=0.512
+2025-12-23 18:30:46 | [32mINFO[0m |     Epoch  10/100: Loss=0.5006, Recall=0.279, Precision=0.109, G-mean=0.438, BalAcc=0.482
+2025-12-23 18:30:52 | [32mINFO[0m |     Epoch  20/100: Loss=0.4815, Recall=0.251, Precision=0.103, G-mean=0.418, BalAcc=0.474
+2025-12-23 18:30:59 | [32mINFO[0m |     Epoch  30/100: Loss=0.4188, Recall=0.396, Precision=0.137, G-mean=0.511, BalAcc=0.527
+2025-12-23 18:31:05 | [32mINFO[0m |     Epoch  40/100: Loss=0.5498, Recall=0.387, Precision=0.109, G-mean=0.465, BalAcc=0.473
+2025-12-23 18:31:11 | [32mINFO[0m |     Epoch  50/100: Loss=0.3964, Recall=0.340, Precision=0.134, G-mean=0.487, BalAcc=0.519
+2025-12-23 18:31:17 | [32mINFO[0m |     Epoch  60/100: Loss=0.4052, Recall=0.315, Precision=0.116, G-mean=0.458, BalAcc=0.490
+2025-12-23 18:31:23 | [32mINFO[0m |     Epoch  70/100: Loss=0.3329, Recall=0.379, Precision=0.126, G-mean=0.492, BalAcc=0.509
+2025-12-23 18:31:30 | [32mINFO[0m |     Epoch  80/100: Loss=0.3681, Recall=0.439, Precision=0.136, G-mean=0.520, BalAcc=0.527
+2025-12-23 18:31:33 | [32mINFO[0m |     Early stopping at epoch 85
+2025-12-23 18:31:33 | [32mINFO[0m |   Constrained G-mean threshold: 0.7719 (min_recall=0.85, max_fpr=0.20)
+2025-12-23 18:31:33 | [32mINFO[0m |   Training metrics: G-mean=0.499, Recall=0.384, Precision=0.131, Specificity=0.650
+2025-12-23 18:31:34 | [32mINFO[0m |   3f27501c: AUROC=0.763, PR-AUC=0.587, F1=0.526, G-mean=0.614, Recall=0.385, Method=constrained_gmean
+2025-12-23 18:31:34 | [32mINFO[0m |   Training fold_3f62db18...
+2025-12-23 18:31:35 | [32mINFO[0m |     Epoch   1/100: Loss=0.6059, Recall=0.414, Precision=0.128, G-mean=0.499, BalAcc=0.508
+2025-12-23 18:31:41 | [32mINFO[0m |     Epoch  10/100: Loss=0.4897, Recall=0.351, Precision=0.121, G-mean=0.477, BalAcc=0.500
+2025-12-23 18:31:47 | [32mINFO[0m |     Epoch  20/100: Loss=0.4760, Recall=0.332, Precision=0.136, G-mean=0.484, BalAcc=0.519
+2025-12-23 18:31:53 | [32mINFO[0m |     Epoch  30/100: Loss=0.4757, Recall=0.255, Precision=0.113, G-mean=0.429, BalAcc=0.488
+2025-12-23 18:31:59 | [32mINFO[0m |     Epoch  40/100: Loss=0.4417, Recall=0.271, Precision=0.109, G-mean=0.431, BalAcc=0.478
+2025-12-23 18:32:05 | [32mINFO[0m |     Epoch  50/100: Loss=0.3974, Recall=0.291, Precision=0.104, G-mean=0.433, BalAcc=0.467
+2025-12-23 18:32:10 | [32mINFO[0m |     Epoch  60/100: Loss=0.4096, Recall=0.260, Precision=0.103, G-mean=0.420, BalAcc=0.469
+2025-12-23 18:32:16 | [32mINFO[0m |     Epoch  70/100: Loss=0.3709, Recall=0.285, Precision=0.135, G-mean=0.459, BalAcc=0.512
+2025-12-23 18:32:22 | [32mINFO[0m |     Epoch  80/100: Loss=0.4136, Recall=0.350, Precision=0.129, G-mean=0.479, BalAcc=0.503
+2025-12-23 18:32:27 | [32mINFO[0m |     Early stopping at epoch 87
+2025-12-23 18:32:27 | [32mINFO[0m |   Constrained G-mean threshold: 0.7468 (min_recall=0.85, max_fpr=0.20)
+2025-12-23 18:32:27 | [32mINFO[0m |   Training metrics: G-mean=0.474, Recall=0.330, Precision=0.127, Specificity=0.682
+2025-12-23 18:32:27 | [32mINFO[0m |   3f62db18: AUROC=0.836, PR-AUC=0.295, F1=0.323, G-mean=0.669, Recall=1.000, Method=constrained_gmean
+2025-12-23 18:32:27 | [32mINFO[0m |   Training fold_464cc459...
+2025-12-23 18:32:28 | [32mINFO[0m |     Epoch   1/100: Loss=0.5830, Recall=0.500, Precision=0.131, G-mean=0.517, BalAcc=0.517
+2025-12-23 18:32:34 | [32mINFO[0m |     Epoch  10/100: Loss=0.5832, Recall=0.312, Precision=0.124, G-mean=0.463, BalAcc=0.500
+2025-12-23 18:32:40 | [32mINFO[0m |     Epoch  20/100: Loss=0.4408, Recall=0.287, Precision=0.110, G-mean=0.439, BalAcc=0.479
+2025-12-23 18:32:46 | [32mINFO[0m |     Epoch  30/100: Loss=0.4335, Recall=0.254, Precision=0.135, G-mean=0.442, BalAcc=0.512
+2025-12-23 18:32:52 | [32mINFO[0m |     Epoch  40/100: Loss=0.4031, Recall=0.328, Precision=0.117, G-mean=0.462, BalAcc=0.489
+2025-12-23 18:32:58 | [32mINFO[0m |     Epoch  50/100: Loss=0.3947, Recall=0.323, Precision=0.118, G-mean=0.462, BalAcc=0.491
+2025-12-23 18:33:04 | [32mINFO[0m |     Epoch  60/100: Loss=0.3786, Recall=0.299, Precision=0.113, G-mean=0.447, BalAcc=0.484
+2025-12-23 18:33:10 | [32mINFO[0m |     Epoch  70/100: Loss=0.3904, Recall=0.312, Precision=0.123, G-mean=0.463, BalAcc=0.499
+2025-12-23 18:33:14 | [32mINFO[0m |     Early stopping at epoch 75
+2025-12-23 18:33:14 | [32mINFO[0m |   Constrained G-mean threshold: 0.7159 (min_recall=0.85, max_fpr=0.20)
+2025-12-23 18:33:14 | [32mINFO[0m |   Training metrics: G-mean=0.495, Recall=0.388, Precision=0.129, Specificity=0.632
+2025-12-23 18:33:14 | [32mINFO[0m |   464cc459: AUROC=0.800, PR-AUC=0.627, F1=0.625, G-mean=0.701, Recall=0.500, Method=constrained_gmean
+2025-12-23 18:33:14 | [32mINFO[0m |   Training fold_46b09d4a...
+2025-12-23 18:33:16 | [32mINFO[0m |     Epoch   1/100: Loss=0.6086, Recall=0.435, Precision=0.124, G-mean=0.495, BalAcc=0.499
+2025-12-23 18:33:21 | [32mINFO[0m |     Epoch  10/100: Loss=0.5071, Recall=0.327, Precision=0.105, G-mean=0.441, BalAcc=0.462
+2025-12-23 18:33:27 | [32mINFO[0m |     Epoch  20/100: Loss=0.4927, Recall=0.325, Precision=0.113, G-mean=0.457, BalAcc=0.483
+2025-12-23 18:33:33 | [32mINFO[0m |     Epoch  30/100: Loss=0.4408, Recall=0.317, Precision=0.120, G-mean=0.461, BalAcc=0.494
+2025-12-23 18:33:39 | [32mINFO[0m |     Epoch  40/100: Loss=0.4190, Recall=0.365, Precision=0.120, G-mean=0.475, BalAcc=0.491
+2025-12-23 18:33:46 | [32mINFO[0m |     Epoch  50/100: Loss=0.4241, Recall=0.302, Precision=0.128, G-mean=0.463, BalAcc=0.506
+2025-12-23 18:33:54 | [32mINFO[0m |     Epoch  60/100: Loss=0.3766, Recall=0.315, Precision=0.112, G-mean=0.450, BalAcc=0.479
+2025-12-23 18:34:01 | [32mINFO[0m |     Epoch  70/100: Loss=0.3603, Recall=0.307, Precision=0.124, G-mean=0.461, BalAcc=0.500
+2025-12-23 18:34:06 | [32mINFO[0m |     Early stopping at epoch 78
+2025-12-23 18:34:06 | [32mINFO[0m |   Constrained G-mean threshold: 0.5197 (min_recall=0.85, max_fpr=0.20)
+2025-12-23 18:34:06 | [32mINFO[0m |   Training metrics: G-mean=0.481, Recall=0.355, Precision=0.125, Specificity=0.651
+2025-12-23 18:34:06 | [32mINFO[0m |   46b09d4a: AUROC=0.886, PR-AUC=0.450, F1=0.452, G-mean=0.757, Recall=0.700, Method=constrained_gmean
+2025-12-23 18:34:06 | [32mINFO[0m |   Training fold_623f620e...
+2025-12-23 18:34:07 | [32mINFO[0m |     Epoch   1/100: Loss=0.6066, Recall=0.404, Precision=0.117, G-mean=0.480, BalAcc=0.487
+2025-12-23 18:34:13 | [32mINFO[0m |     Epoch  10/100: Loss=0.5159, Recall=0.325, Precision=0.119, G-mean=0.462, BalAcc=0.491
+2025-12-23 18:34:19 | [32mINFO[0m |     Epoch  20/100: Loss=0.5242, Recall=0.425, Precision=0.135, G-mean=0.510, BalAcc=0.519
+2025-12-23 18:34:27 | [32mINFO[0m |     Epoch  30/100: Loss=0.4393, Recall=0.259, Precision=0.108, G-mean=0.424, BalAcc=0.476
+2025-12-23 18:34:33 | [32mINFO[0m |     Epoch  40/100: Loss=0.4197, Recall=0.308, Precision=0.130, G-mean=0.467, BalAcc=0.508
+2025-12-23 18:34:40 | [32mINFO[0m |     Epoch  50/100: Loss=0.4121, Recall=0.312, Precision=0.115, G-mean=0.453, BalAcc=0.485
+2025-12-23 18:34:47 | [32mINFO[0m |     Epoch  60/100: Loss=0.3971, Recall=0.343, Precision=0.143, G-mean=0.493, BalAcc=0.526
+2025-12-23 18:34:47 | [32mINFO[0m |     Early stopping at epoch 61
+2025-12-23 18:34:48 | [32mINFO[0m |   Constrained G-mean threshold: 0.5787 (min_recall=0.85, max_fpr=0.20)
+2025-12-23 18:34:48 | [32mINFO[0m |   Training metrics: G-mean=0.440, Recall=0.281, Precision=0.113, Specificity=0.687
+2025-12-23 18:34:48 | [32mINFO[0m |   623f620e: AUROC=0.943, PR-AUC=0.591, F1=0.500, G-mean=0.684, Recall=0.500, Method=constrained_gmean
+2025-12-23 18:34:48 | [32mINFO[0m |   Training fold_6df1a4f9...
+2025-12-23 18:34:49 | [32mINFO[0m |     Epoch   1/100: Loss=0.6182, Recall=0.418, Precision=0.130, G-mean=0.504, BalAcc=0.513
+2025-12-23 18:34:55 | [32mINFO[0m |     Epoch  10/100: Loss=0.5395, Recall=0.282, Precision=0.125, G-mean=0.451, BalAcc=0.502
+2025-12-23 18:35:01 | [32mINFO[0m |     Epoch  20/100: Loss=0.5151, Recall=0.431, Precision=0.134, G-mean=0.512, BalAcc=0.520
+2025-12-23 18:35:07 | [32mINFO[0m |     Epoch  30/100: Loss=0.4407, Recall=0.342, Precision=0.118, G-mean=0.467, BalAcc=0.490
+2025-12-23 18:35:14 | [32mINFO[0m |     Epoch  40/100: Loss=0.4327, Recall=0.345, Precision=0.120, G-mean=0.470, BalAcc=0.493
+2025-12-23 18:35:22 | [32mINFO[0m |     Epoch  50/100: Loss=0.4153, Recall=0.310, Precision=0.134, G-mean=0.471, BalAcc=0.513
+2025-12-23 18:35:29 | [32mINFO[0m |     Epoch  60/100: Loss=0.3770, Recall=0.180, Precision=0.101, G-mean=0.374, BalAcc=0.478
+2025-12-23 18:35:37 | [32mINFO[0m |     Epoch  70/100: Loss=0.3626, Recall=0.192, Precision=0.113, G-mean=0.388, BalAcc=0.489
+2025-12-23 18:35:37 | [32mINFO[0m |     Early stopping at epoch 70
+2025-12-23 18:35:37 | [32mINFO[0m |   Constrained G-mean threshold: 0.7017 (min_recall=0.85, max_fpr=0.20)
+2025-12-23 18:35:37 | [32mINFO[0m |   Training metrics: G-mean=0.405, Recall=0.208, Precision=0.121, Specificity=0.787
+2025-12-23 18:35:37 | [32mINFO[0m |   6df1a4f9: AUROC=0.729, PR-AUC=0.215, F1=0.308, G-mean=0.576, Recall=0.400, Method=constrained_gmean
+2025-12-23 18:35:38 | [32mINFO[0m |   Training fold_7bb4dafd...
+2025-12-23 18:35:40 | [32mINFO[0m |     Epoch   1/100: Loss=0.5862, Recall=0.393, Precision=0.124, G-mean=0.489, BalAcc=0.501
+2025-12-23 18:35:48 | [32mINFO[0m |     Epoch  10/100: Loss=0.4947, Recall=0.363, Precision=0.130, G-mean=0.489, BalAcc=0.511
+2025-12-23 18:35:56 | [32mINFO[0m |     Epoch  20/100: Loss=0.4433, Recall=0.222, Precision=0.104, G-mean=0.404, BalAcc=0.478
+2025-12-23 18:36:04 | [32mINFO[0m |     Epoch  30/100: Loss=0.4100, Recall=0.264, Precision=0.105, G-mean=0.425, BalAcc=0.474
+2025-12-23 18:36:12 | [32mINFO[0m |     Epoch  40/100: Loss=0.4243, Recall=0.222, Precision=0.105, G-mean=0.403, BalAcc=0.477
+2025-12-23 18:36:20 | [32mINFO[0m |     Epoch  50/100: Loss=0.3914, Recall=0.250, Precision=0.113, G-mean=0.426, BalAcc=0.488
+2025-12-23 18:36:27 | [32mINFO[0m |     Epoch  60/100: Loss=0.3925, Recall=0.350, Precision=0.141, G-mean=0.494, BalAcc=0.524
+2025-12-23 18:36:35 | [32mINFO[0m |     Epoch  70/100: Loss=0.3584, Recall=0.222, Precision=0.112, G-mean=0.408, BalAcc=0.486
+2025-12-23 18:36:38 | [32mINFO[0m |     Early stopping at epoch 74
+2025-12-23 18:36:38 | [32mINFO[0m |   Constrained G-mean threshold: 0.7199 (min_recall=0.85, max_fpr=0.20)
+2025-12-23 18:36:38 | [32mINFO[0m |   Training metrics: G-mean=0.475, Recall=0.302, Precision=0.144, Specificity=0.746
+2025-12-23 18:36:38 | [32mINFO[0m |   7bb4dafd: AUROC=0.775, PR-AUC=0.520, F1=0.400, G-mean=0.603, Recall=0.400, Method=constrained_gmean
+2025-12-23 18:36:39 | [32mINFO[0m |   Training fold_840e79d3...
+2025-12-23 18:36:40 | [32mINFO[0m |     Epoch   1/100: Loss=0.6199, Recall=0.375, Precision=0.123, G-mean=0.481, BalAcc=0.496
+2025-12-23 18:36:46 | [32mINFO[0m |     Epoch  10/100: Loss=0.5632, Recall=0.296, Precision=0.129, G-mean=0.461, BalAcc=0.506
+2025-12-23 18:36:53 | [32mINFO[0m |     Epoch  20/100: Loss=0.4397, Recall=0.223, Precision=0.102, G-mean=0.402, BalAcc=0.473
+2025-12-23 18:37:00 | [32mINFO[0m |     Epoch  30/100: Loss=0.4300, Recall=0.291, Precision=0.127, G-mean=0.456, BalAcc=0.503
+2025-12-23 18:37:06 | [32mINFO[0m |     Epoch  40/100: Loss=0.4010, Recall=0.232, Precision=0.124, G-mean=0.422, BalAcc=0.500
+2025-12-23 18:37:14 | [32mINFO[0m |     Epoch  50/100: Loss=0.4604, Recall=0.409, Precision=0.135, G-mean=0.508, BalAcc=0.520
+2025-12-23 18:37:21 | [32mINFO[0m |     Epoch  60/100: Loss=0.3993, Recall=0.424, Precision=0.128, G-mean=0.501, BalAcc=0.507
+2025-12-23 18:37:22 | [32mINFO[0m |     Early stopping at epoch 61
+2025-12-23 18:37:22 | [32mINFO[0m |   Constrained G-mean threshold: 0.7075 (min_recall=0.85, max_fpr=0.20)
+2025-12-23 18:37:22 | [32mINFO[0m |   Training metrics: G-mean=0.489, Recall=0.388, Precision=0.127, Specificity=0.617
+2025-12-23 18:37:22 | [32mINFO[0m |   840e79d3: AUROC=0.818, PR-AUC=0.515, F1=0.286, G-mean=0.608, Recall=0.500, Method=constrained_gmean
+2025-12-23 18:37:23 | [32mINFO[0m |   Training fold_87bf2ae1...
+2025-12-23 18:37:24 | [32mINFO[0m |     Epoch   1/100: Loss=0.5934, Recall=0.373, Precision=0.107, G-mean=0.458, BalAcc=0.468
+2025-12-23 18:37:30 | [32mINFO[0m |     Epoch  10/100: Loss=0.5099, Recall=0.399, Precision=0.149, G-mean=0.520, BalAcc=0.538
+2025-12-23 18:37:37 | [32mINFO[0m |     Epoch  20/100: Loss=0.4724, Recall=0.411, Precision=0.124, G-mean=0.492, BalAcc=0.501
+2025-12-23 18:37:44 | [32mINFO[0m |     Epoch  30/100: Loss=0.4263, Recall=0.286, Precision=0.129, G-mean=0.455, BalAcc=0.505
+2025-12-23 18:37:51 | [32mINFO[0m |     Epoch  40/100: Loss=0.4669, Recall=0.291, Precision=0.127, G-mean=0.456, BalAcc=0.503
+2025-12-23 18:37:58 | [32mINFO[0m |     Epoch  50/100: Loss=0.4285, Recall=0.365, Precision=0.139, G-mean=0.498, BalAcc=0.522
+2025-12-23 18:38:04 | [32mINFO[0m |     Epoch  60/100: Loss=0.3831, Recall=0.267, Precision=0.105, G-mean=0.426, BalAcc=0.474
+2025-12-23 18:38:12 | [32mINFO[0m |     Epoch  70/100: Loss=0.4129, Recall=0.325, Precision=0.127, G-mean=0.471, BalAcc=0.504
+2025-12-23 18:38:19 | [32mINFO[0m |     Epoch  80/100: Loss=0.3431, Recall=0.327, Precision=0.133, G-mean=0.478, BalAcc=0.513
+2025-12-23 18:38:25 | [32mINFO[0m |     Early stopping at epoch 87
+2025-12-23 18:38:25 | [32mINFO[0m |   Constrained G-mean threshold: 0.5682 (min_recall=0.85, max_fpr=0.20)
+2025-12-23 18:38:25 | [32mINFO[0m |   Training metrics: G-mean=0.450, Recall=0.282, Precision=0.123, Specificity=0.717
+2025-12-23 18:38:25 | [32mINFO[0m |   87bf2ae1: AUROC=0.846, PR-AUC=0.313, F1=0.486, G-mean=0.822, Recall=0.900, Method=constrained_gmean
+2025-12-23 18:38:25 | [32mINFO[0m |   Training fold_89ba6f89...
+2025-12-23 18:38:27 | [32mINFO[0m |     Epoch   1/100: Loss=0.6152, Recall=0.453, Precision=0.124, G-mean=0.497, BalAcc=0.499
+2025-12-23 18:38:34 | [32mINFO[0m |     Epoch  10/100: Loss=0.5185, Recall=0.381, Precision=0.148, G-mean=0.513, BalAcc=0.535
+2025-12-23 18:38:42 | [32mINFO[0m |     Epoch  20/100: Loss=0.4882, Recall=0.386, Precision=0.121, G-mean=0.483, BalAcc=0.495
+2025-12-23 18:38:50 | [32mINFO[0m |     Epoch  30/100: Loss=0.4661, Recall=0.276, Precision=0.119, G-mean=0.442, BalAcc=0.493
+2025-12-23 18:38:58 | [32mINFO[0m |     Epoch  40/100: Loss=0.4089, Recall=0.291, Precision=0.124, G-mean=0.453, BalAcc=0.499
+2025-12-23 18:39:07 | [32mINFO[0m |     Epoch  50/100: Loss=0.4274, Recall=0.322, Precision=0.135, G-mean=0.477, BalAcc=0.515
+2025-12-23 18:39:15 | [32mINFO[0m |     Epoch  60/100: Loss=0.3914, Recall=0.394, Precision=0.133, G-mean=0.501, BalAcc=0.515
+2025-12-23 18:39:22 | [32mINFO[0m |     Epoch  70/100: Loss=0.3676, Recall=0.342, Precision=0.145, G-mean=0.494, BalAcc=0.528
+2025-12-23 18:39:29 | [32mINFO[0m |     Epoch  80/100: Loss=0.3622, Recall=0.356, Precision=0.127, G-mean=0.483, BalAcc=0.505
+2025-12-23 18:39:34 | [32mINFO[0m |     Early stopping at epoch 89
+2025-12-23 18:39:35 | [32mINFO[0m |   Constrained G-mean threshold: 0.7512 (min_recall=0.85, max_fpr=0.20)
+2025-12-23 18:39:35 | [32mINFO[0m |   Training metrics: G-mean=0.487, Recall=0.335, Precision=0.140, Specificity=0.707
+2025-12-23 18:39:35 | [32mINFO[0m |   89ba6f89: AUROC=0.928, PR-AUC=0.750, F1=0.621, G-mean=0.879, Recall=0.900, Method=constrained_gmean
+2025-12-23 18:39:35 | [32mINFO[0m |   Training fold_937503f7...
+2025-12-23 18:39:36 | [32mINFO[0m |     Epoch   1/100: Loss=0.6045, Recall=0.358, Precision=0.111, G-mean=0.462, BalAcc=0.477
+2025-12-23 18:39:42 | [32mINFO[0m |     Epoch  10/100: Loss=0.5093, Recall=0.335, Precision=0.116, G-mean=0.464, BalAcc=0.489
+2025-12-23 18:39:48 | [32mINFO[0m |     Epoch  20/100: Loss=0.5228, Recall=0.303, Precision=0.099, G-mean=0.432, BalAcc=0.459
+2025-12-23 18:39:55 | [32mINFO[0m |     Epoch  30/100: Loss=0.4712, Recall=0.276, Precision=0.105, G-mean=0.429, BalAcc=0.471
+2025-12-23 18:40:01 | [32mINFO[0m |     Epoch  40/100: Loss=0.4444, Recall=0.340, Precision=0.122, G-mean=0.471, BalAcc=0.496
+2025-12-23 18:40:08 | [32mINFO[0m |     Epoch  50/100: Loss=0.4026, Recall=0.286, Precision=0.109, G-mean=0.437, BalAcc=0.477
+2025-12-23 18:40:15 | [32mINFO[0m |     Epoch  60/100: Loss=0.3755, Recall=0.327, Precision=0.144, G-mean=0.487, BalAcc=0.527
+2025-12-23 18:40:22 | [32mINFO[0m |     Epoch  70/100: Loss=0.3742, Recall=0.323, Precision=0.114, G-mean=0.458, BalAcc=0.486
+2025-12-23 18:40:28 | [32mINFO[0m |     Epoch  80/100: Loss=0.4130, Recall=0.378, Precision=0.124, G-mean=0.486, BalAcc=0.502
+2025-12-23 18:40:34 | [32mINFO[0m |     Epoch  90/100: Loss=0.3678, Recall=0.361, Precision=0.119, G-mean=0.474, BalAcc=0.492
+2025-12-23 18:40:40 | [32mINFO[0m |     Epoch 100/100: Loss=0.3810, Recall=0.386, Precision=0.133, G-mean=0.499, BalAcc=0.515
+2025-12-23 18:40:41 | [32mINFO[0m |   Constrained G-mean threshold: 0.5124 (min_recall=0.85, max_fpr=0.20)
+2025-12-23 18:40:41 | [32mINFO[0m |   Training metrics: G-mean=0.512, Recall=0.405, Precision=0.138, Specificity=0.647
+2025-12-23 18:40:41 | [32mINFO[0m |   937503f7: AUROC=0.851, PR-AUC=0.420, F1=0.286, G-mean=0.440, Recall=0.200, Method=constrained_gmean
+2025-12-23 18:40:41 | [32mINFO[0m |   Training fold_a360c459...
+2025-12-23 18:40:42 | [32mINFO[0m |     Epoch   1/100: Loss=0.5841, Recall=0.333, Precision=0.125, G-mean=0.470, BalAcc=0.499
+2025-12-23 18:40:48 | [32mINFO[0m |     Epoch  10/100: Loss=0.5219, Recall=0.337, Precision=0.112, G-mean=0.457, BalAcc=0.478
+2025-12-23 18:40:54 | [32mINFO[0m |     Epoch  20/100: Loss=0.4351, Recall=0.399, Precision=0.120, G-mean=0.483, BalAcc=0.492
+2025-12-23 18:41:00 | [32mINFO[0m |     Epoch  30/100: Loss=0.4365, Recall=0.369, Precision=0.122, G-mean=0.480, BalAcc=0.497
+2025-12-23 18:41:07 | [32mINFO[0m |     Epoch  40/100: Loss=0.4141, Recall=0.289, Precision=0.136, G-mean=0.461, BalAcc=0.513
+2025-12-23 18:41:13 | [32mINFO[0m |     Epoch  50/100: Loss=0.3883, Recall=0.375, Precision=0.129, G-mean=0.489, BalAcc=0.506
+2025-12-23 18:41:19 | [32mINFO[0m |     Epoch  60/100: Loss=0.3865, Recall=0.399, Precision=0.148, G-mean=0.520, BalAcc=0.538
+2025-12-23 18:41:25 | [32mINFO[0m |     Epoch  70/100: Loss=0.3826, Recall=0.259, Precision=0.108, G-mean=0.423, BalAcc=0.476
+2025-12-23 18:41:31 | [32mINFO[0m |     Epoch  80/100: Loss=0.3666, Recall=0.281, Precision=0.122, G-mean=0.449, BalAcc=0.499
+2025-12-23 18:41:37 | [32mINFO[0m |     Epoch  90/100: Loss=0.2882, Recall=0.261, Precision=0.097, G-mean=0.413, BalAcc=0.458
+2025-12-23 18:41:43 | [32mINFO[0m |     Epoch 100/100: Loss=0.3587, Recall=0.368, Precision=0.137, G-mean=0.496, BalAcc=0.518
+2025-12-23 18:41:44 | [32mINFO[0m |   Constrained G-mean threshold: 0.4638 (min_recall=0.85, max_fpr=0.20)
+2025-12-23 18:41:44 | [32mINFO[0m |   Training metrics: G-mean=0.484, Recall=0.353, Precision=0.131, Specificity=0.663
+2025-12-23 18:41:44 | [32mINFO[0m |   a360c459: AUROC=0.903, PR-AUC=0.585, F1=0.500, G-mean=0.837, Recall=0.900, Method=constrained_gmean
+2025-12-23 18:41:44 | [32mINFO[0m |   Training fold_a5e823ad...
+2025-12-23 18:41:45 | [32mINFO[0m |     Epoch   1/100: Loss=0.6065, Recall=0.363, Precision=0.116, G-mean=0.472, BalAcc=0.488
+2025-12-23 18:41:50 | [32mINFO[0m |     Epoch  10/100: Loss=0.4700, Recall=0.266, Precision=0.119, G-mean=0.438, BalAcc=0.493
+2025-12-23 18:41:57 | [32mINFO[0m |     Epoch  20/100: Loss=0.4421, Recall=0.238, Precision=0.111, G-mean=0.417, BalAcc=0.485
+2025-12-23 18:42:02 | [32mINFO[0m |     Epoch  30/100: Loss=0.4141, Recall=0.327, Precision=0.141, G-mean=0.484, BalAcc=0.522
+2025-12-23 18:42:09 | [32mINFO[0m |     Epoch  40/100: Loss=0.4255, Recall=0.286, Precision=0.133, G-mean=0.461, BalAcc=0.514
+2025-12-23 18:42:14 | [32mINFO[0m |     Epoch  50/100: Loss=0.3922, Recall=0.302, Precision=0.141, G-mean=0.472, BalAcc=0.521
+2025-12-23 18:42:20 | [32mINFO[0m |     Epoch  60/100: Loss=0.4005, Recall=0.248, Precision=0.123, G-mean=0.431, BalAcc=0.500
+2025-12-23 18:42:26 | [32mINFO[0m |     Epoch  70/100: Loss=0.3892, Recall=0.308, Precision=0.131, G-mean=0.468, BalAcc=0.510
+2025-12-23 18:42:30 | [32mINFO[0m |     Early stopping at epoch 77
+2025-12-23 18:42:31 | [32mINFO[0m |   Constrained G-mean threshold: 0.5897 (min_recall=0.85, max_fpr=0.20)
+2025-12-23 18:42:31 | [32mINFO[0m |   Training metrics: G-mean=0.462, Recall=0.296, Precision=0.132, Specificity=0.724
+2025-12-23 18:42:31 | [32mINFO[0m |   a5e823ad: AUROC=0.520, PR-AUC=0.140, F1=0.000, G-mean=0.000, Recall=0.000, Method=constrained_gmean
+2025-12-23 18:42:31 | [32mINFO[0m |   Training fold_b61f4c2a...
+2025-12-23 18:42:32 | [32mINFO[0m |     Epoch   1/100: Loss=0.6084, Recall=0.419, Precision=0.126, G-mean=0.495, BalAcc=0.502
+2025-12-23 18:42:38 | [32mINFO[0m |     Epoch  10/100: Loss=0.4731, Recall=0.384, Precision=0.111, G-mean=0.466, BalAcc=0.474
+2025-12-23 18:42:46 | [32mINFO[0m |     Epoch  20/100: Loss=0.4607, Recall=0.297, Precision=0.122, G-mean=0.455, BalAcc=0.497
+2025-12-23 18:42:53 | [32mINFO[0m |     Epoch  30/100: Loss=0.4599, Recall=0.353, Precision=0.107, G-mean=0.455, BalAcc=0.469
+2025-12-23 18:55:01 | [32mINFO[0m |     Epoch  40/100: Loss=0.4444, Recall=0.287, Precision=0.109, G-mean=0.438, BalAcc=0.478
+2025-12-23 18:55:08 | [32mINFO[0m |     Epoch  50/100: Loss=0.4275, Recall=0.310, Precision=0.108, G-mean=0.446, BalAcc=0.476
+2025-12-23 18:55:15 | [32mINFO[0m |     Epoch  60/100: Loss=0.4059, Recall=0.288, Precision=0.117, G-mean=0.449, BalAcc=0.493
+2025-12-23 18:55:21 | [32mINFO[0m |     Epoch  70/100: Loss=0.4607, Recall=0.337, Precision=0.129, G-mean=0.478, BalAcc=0.508
+2025-12-23 18:55:26 | [32mINFO[0m |     Epoch  80/100: Loss=0.3667, Recall=0.294, Precision=0.114, G-mean=0.447, BalAcc=0.486
+2025-12-23 18:55:33 | [32mINFO[0m |     Epoch  90/100: Loss=0.3696, Recall=0.332, Precision=0.114, G-mean=0.459, BalAcc=0.484
+2025-12-23 18:55:34 | [32mINFO[0m |     Early stopping at epoch 93
+2025-12-23 18:55:35 | [32mINFO[0m |   Constrained G-mean threshold: 0.7599 (min_recall=0.85, max_fpr=0.20)
+2025-12-23 18:55:35 | [32mINFO[0m |   Training metrics: G-mean=0.444, Recall=0.305, Precision=0.107, Specificity=0.645
+2025-12-23 18:55:35 | [32mINFO[0m |   b61f4c2a: AUROC=0.875, PR-AUC=0.676, F1=0.522, G-mean=0.731, Recall=0.600, Method=constrained_gmean
+2025-12-23 18:55:35 | [32mINFO[0m |   Training fold_c5a60768...
+2025-12-23 18:55:36 | [32mINFO[0m |     Epoch   1/100: Loss=0.6103, Recall=0.348, Precision=0.118, G-mean=0.470, BalAcc=0.491
+2025-12-23 18:55:41 | [32mINFO[0m |     Epoch  10/100: Loss=0.5328, Recall=0.343, Precision=0.131, G-mean=0.481, BalAcc=0.509
+2025-12-23 18:55:47 | [32mINFO[0m |     Epoch  20/100: Loss=0.4576, Recall=0.348, Precision=0.139, G-mean=0.490, BalAcc=0.519
+2025-12-23 18:55:54 | [32mINFO[0m |     Epoch  30/100: Loss=0.4686, Recall=0.280, Precision=0.118, G-mean=0.443, BalAcc=0.490
+2025-12-23 18:56:00 | [32mINFO[0m |     Epoch  40/100: Loss=0.4120, Recall=0.294, Precision=0.132, G-mean=0.463, BalAcc=0.511
+2025-12-23 18:56:05 | [32mINFO[0m |     Epoch  50/100: Loss=0.4022, Recall=0.284, Precision=0.138, G-mean=0.462, BalAcc=0.518
+2025-12-23 18:56:11 | [32mINFO[0m |     Epoch  60/100: Loss=0.3793, Recall=0.423, Precision=0.130, G-mean=0.501, BalAcc=0.509
+2025-12-23 18:56:17 | [32mINFO[0m |     Epoch  70/100: Loss=0.3914, Recall=0.294, Precision=0.135, G-mean=0.463, BalAcc=0.512
+2025-12-23 18:56:22 | [32mINFO[0m |     Epoch  80/100: Loss=0.4228, Recall=0.221, Precision=0.115, G-mean=0.410, BalAcc=0.490
+2025-12-23 18:56:28 | [32mINFO[0m |     Epoch  90/100: Loss=0.3701, Recall=0.273, Precision=0.102, G-mean=0.424, BalAcc=0.466
+2025-12-23 18:56:29 | [32mINFO[0m |     Early stopping at epoch 91
+2025-12-23 18:56:29 | [32mINFO[0m |   Constrained G-mean threshold: 0.1750 (min_recall=0.85, max_fpr=0.20)
+2025-12-23 18:56:29 | [32mINFO[0m |   Training metrics: G-mean=0.447, Recall=0.281, Precision=0.121, Specificity=0.711
+2025-12-23 18:56:30 | [32mINFO[0m |   c5a60768: AUROC=0.708, PR-AUC=0.281, F1=0.292, G-mean=0.647, Recall=0.700, Method=constrained_gmean
+2025-12-23 18:56:30 | [32mINFO[0m |   Training fold_d9af7d23...
+2025-12-23 18:56:31 | [32mINFO[0m |     Epoch   1/100: Loss=0.6242, Recall=0.488, Precision=0.140, G-mean=0.528, BalAcc=0.529
+2025-12-23 18:56:36 | [32mINFO[0m |     Epoch  10/100: Loss=0.5088, Recall=0.383, Precision=0.125, G-mean=0.490, BalAcc=0.505
+2025-12-23 18:56:42 | [32mINFO[0m |     Epoch  20/100: Loss=0.5131, Recall=0.360, Precision=0.129, G-mean=0.485, BalAcc=0.507
+2025-12-23 18:56:49 | [32mINFO[0m |     Epoch  30/100: Loss=0.4473, Recall=0.362, Precision=0.126, G-mean=0.482, BalAcc=0.502
+2025-12-23 18:56:54 | [32mINFO[0m |     Epoch  40/100: Loss=0.4656, Recall=0.299, Precision=0.109, G-mean=0.444, BalAcc=0.479
+2025-12-23 18:57:02 | [32mINFO[0m |     Epoch  50/100: Loss=0.3990, Recall=0.371, Precision=0.142, G-mean=0.501, BalAcc=0.523
+2025-12-23 18:57:09 | [32mINFO[0m |     Epoch  60/100: Loss=0.4328, Recall=0.283, Precision=0.114, G-mean=0.441, BalAcc=0.486
+2025-12-23 18:57:15 | [32mINFO[0m |     Epoch  70/100: Loss=0.4108, Recall=0.337, Precision=0.134, G-mean=0.482, BalAcc=0.514
+2025-12-23 18:57:22 | [32mINFO[0m |     Epoch  80/100: Loss=0.4086, Recall=0.333, Precision=0.120, G-mean=0.467, BalAcc=0.494
+2025-12-23 18:57:28 | [32mINFO[0m |     Epoch  90/100: Loss=0.3886, Recall=0.338, Precision=0.138, G-mean=0.488, BalAcc=0.520
+2025-12-23 18:57:28 | [32mINFO[0m |     Early stopping at epoch 91
+2025-12-23 18:57:29 | [32mINFO[0m |   Constrained G-mean threshold: 0.7038 (min_recall=0.85, max_fpr=0.20)
+2025-12-23 18:57:29 | [32mINFO[0m |   Training metrics: G-mean=0.455, Recall=0.307, Precision=0.119, Specificity=0.677
+2025-12-23 18:57:29 | [32mINFO[0m |   d9af7d23: AUROC=0.872, PR-AUC=0.421, F1=0.370, G-mean=0.649, Recall=0.500, Method=constrained_gmean
+2025-12-23 18:57:29 | [32mINFO[0m |   Training fold_ddca342b...
+2025-12-23 18:57:31 | [32mINFO[0m |     Epoch   1/100: Loss=0.5833, Recall=0.348, Precision=0.141, G-mean=0.492, BalAcc=0.521
+2025-12-23 18:57:37 | [32mINFO[0m |     Epoch  10/100: Loss=0.5408, Recall=0.363, Precision=0.130, G-mean=0.486, BalAcc=0.506
+2025-12-23 18:57:44 | [32mINFO[0m |     Epoch  20/100: Loss=0.4933, Recall=0.426, Precision=0.128, G-mean=0.503, BalAcc=0.509
+2025-12-23 18:57:49 | [32mINFO[0m |     Epoch  30/100: Loss=0.4179, Recall=0.320, Precision=0.116, G-mean=0.457, BalAcc=0.486
+2025-12-23 18:57:55 | [32mINFO[0m |     Epoch  40/100: Loss=0.4231, Recall=0.240, Precision=0.100, G-mean=0.408, BalAcc=0.466
+2025-12-23 18:58:01 | [32mINFO[0m |     Epoch  50/100: Loss=0.3986, Recall=0.325, Precision=0.122, G-mean=0.467, BalAcc=0.498
+2025-12-23 18:58:08 | [32mINFO[0m |     Epoch  60/100: Loss=0.4111, Recall=0.381, Precision=0.134, G-mean=0.499, BalAcc=0.518
+2025-12-23 18:58:11 | [32mINFO[0m |     Early stopping at epoch 66
+2025-12-23 18:58:12 | [32mINFO[0m |   Constrained G-mean threshold: 0.7746 (min_recall=0.85, max_fpr=0.20)
+2025-12-23 18:58:12 | [32mINFO[0m |   Training metrics: G-mean=0.468, Recall=0.310, Precision=0.131, Specificity=0.706
+2025-12-23 18:58:12 | [32mINFO[0m |   ddca342b: AUROC=0.667, PR-AUC=0.286, F1=0.245, G-mean=0.583, Recall=0.600, Method=constrained_gmean
+2025-12-23 18:58:12 | [32mINFO[0m |   Training fold_f64f9403...
+2025-12-23 18:58:13 | [32mINFO[0m |     Epoch   1/100: Loss=0.6106, Recall=0.490, Precision=0.149, G-mean=0.543, BalAcc=0.545
+2025-12-23 18:58:18 | [32mINFO[0m |     Epoch  10/100: Loss=0.5342, Recall=0.323, Precision=0.115, G-mean=0.456, BalAcc=0.483
+2025-12-23 18:58:24 | [32mINFO[0m |     Epoch  20/100: Loss=0.5139, Recall=0.369, Precision=0.134, G-mean=0.491, BalAcc=0.512
+2025-12-23 18:58:30 | [32mINFO[0m |     Epoch  30/100: Loss=0.4283, Recall=0.364, Precision=0.130, G-mean=0.488, BalAcc=0.510
+2025-12-23 18:58:38 | [32mINFO[0m |     Epoch  40/100: Loss=0.4515, Recall=0.415, Precision=0.113, G-mean=0.471, BalAcc=0.474
+2025-12-23 18:58:44 | [32mINFO[0m |     Epoch  50/100: Loss=0.3972, Recall=0.382, Precision=0.124, G-mean=0.485, BalAcc=0.499
+2025-12-23 18:58:50 | [32mINFO[0m |     Epoch  60/100: Loss=0.3778, Recall=0.265, Precision=0.122, G-mean=0.439, BalAcc=0.496
+2025-12-23 18:58:55 | [32mINFO[0m |     Epoch  70/100: Loss=0.3845, Recall=0.236, Precision=0.112, G-mean=0.416, BalAcc=0.485
+2025-12-23 18:58:59 | [32mINFO[0m |     Early stopping at epoch 77
+2025-12-23 18:59:00 | [32mINFO[0m |   Constrained G-mean threshold: 0.6326 (min_recall=0.85, max_fpr=0.20)
+2025-12-23 18:59:00 | [32mINFO[0m |   Training metrics: G-mean=0.458, Recall=0.290, Precision=0.131, Specificity=0.724
+2025-12-23 18:59:00 | [32mINFO[0m |   f64f9403: AUROC=0.881, PR-AUC=0.530, F1=0.320, G-mean=0.586, Recall=0.400, Method=constrained_gmean
+2025-12-23 18:59:00 | [32mINFO[0m |   Training fold_f9513e4b...
+2025-12-23 18:59:01 | [32mINFO[0m |     Epoch   1/100: Loss=0.6318, Recall=0.375, Precision=0.123, G-mean=0.482, BalAcc=0.497
+2025-12-23 18:59:07 | [32mINFO[0m |     Epoch  10/100: Loss=0.4796, Recall=0.352, Precision=0.121, G-mean=0.474, BalAcc=0.495
+2025-12-23 18:59:13 | [32mINFO[0m |     Epoch  20/100: Loss=0.4595, Recall=0.335, Precision=0.111, G-mean=0.457, BalAcc=0.480
+2025-12-23 18:59:19 | [32mINFO[0m |     Epoch  30/100: Loss=0.4296, Recall=0.320, Precision=0.128, G-mean=0.471, BalAcc=0.507
+2025-12-23 18:59:25 | [32mINFO[0m |     Epoch  40/100: Loss=0.4408, Recall=0.433, Precision=0.129, G-mean=0.502, BalAcc=0.507
+2025-12-23 18:59:31 | [32mINFO[0m |     Epoch  50/100: Loss=0.4070, Recall=0.405, Precision=0.133, G-mean=0.502, BalAcc=0.514
+2025-12-23 18:59:36 | [32mINFO[0m |     Epoch  60/100: Loss=0.3916, Recall=0.347, Precision=0.135, G-mean=0.485, BalAcc=0.512
+2025-12-23 18:59:42 | [32mINFO[0m |     Epoch  70/100: Loss=0.3519, Recall=0.335, Precision=0.132, G-mean=0.479, BalAcc=0.510
+2025-12-23 18:59:45 | [32mINFO[0m |     Early stopping at epoch 74
+2025-12-23 18:59:45 | [32mINFO[0m |   Constrained G-mean threshold: 0.4461 (min_recall=0.85, max_fpr=0.20)
+2025-12-23 18:59:45 | [32mINFO[0m |   Training metrics: G-mean=0.461, Recall=0.308, Precision=0.123, Specificity=0.690
+2025-12-23 18:59:45 | [32mINFO[0m |   f9513e4b: AUROC=0.712, PR-AUC=0.447, F1=0.294, G-mean=0.614, Recall=0.500, Method=constrained_gmean
+2025-12-23 18:59:45 | [32mINFO[0m | 
+============================================================
+2025-12-23 18:59:45 | [32mINFO[0m | RESULTS
+2025-12-23 18:59:45 | [32mINFO[0m | ============================================================
+2025-12-23 18:59:45 | [32mINFO[0m | AUROC: 0.812 ± 0.106
+2025-12-23 18:59:45 | [32mINFO[0m | PR-AUC: 0.471 ± 0.188
+2025-12-23 18:59:45 | [32mINFO[0m | F1: 0.394 ± 0.171
+2025-12-23 18:59:45 | [32mINFO[0m | G-mean: 0.632 ± 0.199
+2025-12-23 18:59:45 | [32mINFO[0m | Recall: 0.556 ± 0.272
+2025-12-23 18:59:45 | [32mINFO[0m | Precision: 0.368 ± 0.206
+2025-12-23 18:59:45 | [32mINFO[0m | Balanced Accuracy: 0.693 ± 0.113
+2025-12-23 18:59:45 | [32mINFO[0m | Saved fold metrics to /Users/jithuazeez/Documents/Msc/Dissertation/experiments/multirate_multirate_120s_label_5min_fold_metrics.csv
+2025-12-23 18:59:45 | [32mINFO[0m | ======================================================================
+2025-12-23 18:59:45 | [32mINFO[0m |   MULTI-RATE LATE FUSION TRAINING - COMPLETE
+2025-12-23 18:59:45 | [32mINFO[0m |   Finished at: 2025-12-23 18:59:45
+2025-12-23 18:59:45 | [32mINFO[0m | ======================================================================

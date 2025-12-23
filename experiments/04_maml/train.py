@@ -524,7 +524,7 @@ def loso_cross_validation(data_by_subject: Dict[str, Tuple[np.ndarray, np.ndarra
         n_neg = np.sum(all_train_y == 0)
         
         if n_pos > 0 and n_neg > 0:
-            weight_pos = n_neg / n_pos
+            weight_pos = min(n_neg / n_pos, 5.0)
             class_weights = torch.tensor([1.0, weight_pos], dtype=torch.float32).to(device)
         else:
             class_weights = None
@@ -552,7 +552,7 @@ def loso_cross_validation(data_by_subject: Dict[str, Tuple[np.ndarray, np.ndarra
             ).to(device)
         
         # Wrap with MAML - this handles gradient computation correctly!
-        maml = MAML(model, lr=inner_lr, first_order=False)  # first_order=False for full MAML
+        maml = MAML(model, lr=inner_lr, first_order=True)  # first_order=False for full MAML
         
         # Meta-optimizer (outer loop)
         meta_optimizer = torch.optim.Adam(maml.parameters(), lr=meta_lr)

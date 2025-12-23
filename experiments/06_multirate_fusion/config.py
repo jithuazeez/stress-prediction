@@ -19,17 +19,17 @@ class MultiRateConfig:
     # ==========================================================================
     # Paths
     # ==========================================================================
-    # data_path: Path = Path("/Users/jithuazeez/Documents/Msc/Dissertation/Datasets/VitaStress/data")
+    data_path: Path = Path("/Users/jithuazeez/Documents/Msc/Dissertation/Datasets/VitaStress/data")
     # data_path: Path = Path("/kaggle/input/vitastress/VitaStress/data")
-    data_path: Path = Path("/kaggle/input/vitastess2/VitaStress/data")
-    # results_base_path: Path = Path("/Users/jithuazeez/Documents/Msc/Dissertation/experiments")
-    results_path: Path = Path("/kaggle/working/stress-prediction/experiments")
+    # data_path: Path = Path("/kaggle/input/vitastess2/VitaStress/data")
+    results_path: Path = Path("/Users/jithuazeez/Documents/Msc/Dissertation/experiments")
+    # results_path: Path = Path("/kaggle/working/stress-prediction/experiments")
     # ==========================================================================
-    # Native Sampling Rates
+    # Native Sampling Rates (Same channels as MOMENT but at native rates)
     # ==========================================================================
-    ppg_sample_rate: float = 64.0   # PPG at 64 Hz
-    acc_sample_rate: float = 32.0   # Accelerometer at 32 Hz
-    temp_sample_rate: float = 1.0   # Temperature at 1 Hz
+    # ppg_sample_rate: float = 64.0   # PPG at 64 Hz (DISABLED - using HR/HRV instead)
+    acc_sample_rate: float = 32.0   # Accelerometer at 32 Hz (3 channels: x, y, z)
+    physio_sample_rate: float = 1.0   # Physiological signals at 1 Hz (5 channels: skin_temp, heatflux, cbt, hr_bpm, rmssd)
     
     # ==========================================================================
     # Window Parameters
@@ -48,14 +48,11 @@ class MultiRateConfig:
     # ==========================================================================
     # Model Architecture
     # ==========================================================================
-    # PPG Encoder output
-    ppg_embedding_dim: int = 128
-    
-    # ACC Encoder output
+    # ACC Encoder (3 channels at 32Hz: acc_x, acc_y, acc_z)
     acc_embedding_dim: int = 128
     
-    # Temp Encoder output
-    temp_embedding_dim: int = 64
+    # Physio Encoder (5 channels at 1Hz: skin_temp, heatflux, cbt, hr_bpm, rmssd)
+    physio_embedding_dim: int = 128
     
     # Fusion layer dimension
     fusion_dim: int = 128
@@ -101,24 +98,19 @@ class MultiRateConfig:
         self.results_path = Path(self.results_path)
     
     @property
-    def ppg_samples_per_window(self) -> int:
-        """Number of PPG samples per window."""
-        return int(self.window_size_sec * self.ppg_sample_rate)
-    
-    @property
     def acc_samples_per_window(self) -> int:
-        """Number of ACC samples per window."""
+        """Number of ACC samples per window (3 channels: x, y, z)."""
         return int(self.window_size_sec * self.acc_sample_rate)
     
     @property
-    def temp_samples_per_window(self) -> int:
-        """Number of temperature samples per window."""
-        return int(self.window_size_sec * self.temp_sample_rate)
+    def physio_samples_per_window(self) -> int:
+        """Number of physiological samples per window (5 channels at 1Hz)."""
+        return int(self.window_size_sec * self.physio_sample_rate)
     
     @property
     def total_embedding_dim(self) -> int:
         """Total dimension after concatenating all embeddings."""
-        return self.ppg_embedding_dim + self.acc_embedding_dim + self.temp_embedding_dim
+        return self.acc_embedding_dim + self.physio_embedding_dim
     
     def get_config_for_run(
         self,
@@ -129,18 +121,16 @@ class MultiRateConfig:
         config = MultiRateConfig(
             data_path=self.data_path,
             results_path=self.results_path,
-            ppg_sample_rate=self.ppg_sample_rate,
             acc_sample_rate=self.acc_sample_rate,
-            temp_sample_rate=self.temp_sample_rate,
+            physio_sample_rate=self.physio_sample_rate,
             window_sizes_sec=self.window_sizes_sec,
             window_size_sec=window_size_sec,
             overlap_ratio=self.overlap_ratio,
             skip_first_minutes=self.skip_first_minutes,
             horizons_minutes=self.horizons_minutes,
             target_label=f"label_{horizon_minutes}min",
-            ppg_embedding_dim=self.ppg_embedding_dim,
             acc_embedding_dim=self.acc_embedding_dim,
-            temp_embedding_dim=self.temp_embedding_dim,
+            physio_embedding_dim=self.physio_embedding_dim,
             fusion_dim=self.fusion_dim,
             dropout=self.dropout,
             n_epochs=self.n_epochs,
@@ -170,8 +160,7 @@ if __name__ == "__main__":
     
     print("Multi-Rate Config:")
     print(f"  Window size: {config.window_size_sec}s")
-    print(f"  PPG: {config.ppg_sample_rate}Hz -> {config.ppg_samples_per_window} samples")
-    print(f"  ACC: {config.acc_sample_rate}Hz -> {config.acc_samples_per_window} samples")
-    print(f"  Temp: {config.temp_sample_rate}Hz -> {config.temp_samples_per_window} samples")
+    print(f"  ACC: {config.acc_sample_rate}Hz (3 channels) -> {config.acc_samples_per_window} samples")
+    print(f"  Physio: {config.physio_sample_rate}Hz (5 channels) -> {config.physio_samples_per_window} samples")
     print(f"  Total embedding: {config.total_embedding_dim}")
 

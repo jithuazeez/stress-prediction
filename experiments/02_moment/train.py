@@ -423,8 +423,8 @@ def loso_cross_validation(windows_by_subject: Dict[str, List[Dict]],
             n_channels=config.n_channels,
             num_classes=2,
             freeze_backbone=True,
-            unfreeze_last_n_blocks=UNFREEZE_LAST_N_BLOCKS,
-            use_simple=False
+            unfreeze_last_n_blocks=0,
+            use_simple=True
         ).to(device)
         
         # Log trainable parameters (only on first fold) - compact format

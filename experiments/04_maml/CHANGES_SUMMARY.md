@@ -352,3 +352,4 @@ python train.py --model cnn --epochs 5
 **Questions?** Check `README.md` or `QUICK_START.md` for detailed guides.
 
 **Last Updated:** December 22, 2024
+

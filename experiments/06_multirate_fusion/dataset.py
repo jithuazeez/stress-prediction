@@ -1,10 +1,11 @@
 """
 Dataset for Multi-Rate Late Fusion.
 
-Loads signals at their native sampling rates:
-- PPG: 64 Hz
-- ACC: 32 Hz (3 channels)
-- Temp: 1 Hz
+Loads signals at their native sampling rates (Same 8 channels as MOMENT):
+- ACC: 32 Hz (3 channels: acc_x, acc_y, acc_z)
+- Physio: 1 Hz (5 channels: skin_temp, heatflux, cbt, hr_bpm, rmssd)
+
+Note: PPG is disabled. Using HR and HRV (RMSSD) instead, which are more meaningful at 1Hz.
 
 Each sample contains separately shaped arrays for each modality.
 """
@@ -97,6 +98,9 @@ def load_multirate_window(
 ) -> Dict[str, np.ndarray]:
     """
     Load a single window with signals at native rates.
+    Same 8 channels as MOMENT but at native rates:
+    - ACC (32Hz): 3 channels
+    - Physio (1Hz): 5 channels
     
     Args:
         signals: Dictionary of signal DataFrames
@@ -106,23 +110,31 @@ def load_multirate_window(
     
     Returns:
         Dictionary with:
-        - ppg: (n_ppg_samples,) at 64Hz
-        - acc: (3, n_acc_samples) at 32Hz
-        - temp: (n_temp_samples,) at 1Hz
+        - acc: (3, n_acc_samples) at 32Hz - acc_x, acc_y, acc_z
+        - physio: (5, n_physio_samples) at 1Hz - skin_temp, heatflux, cbt, hr_bpm, rmssd
     """
     result = {}
     
-    # PPG at 64Hz
-    ppg_df = signals.get("ppg")
-    if ppg_df is not None and "value" in ppg_df.columns:
-        result["ppg"] = extract_signal_at_native_rate(
-            ppg_df, "value", ppg_df["timestamp"],
-            window_start, window_end, config.ppg_sample_rate
-        )
-    else:
-        result["ppg"] = np.zeros(config.ppg_samples_per_window, dtype=np.float32)
+    # Helper function to ensure correct length
+    def ensure_length(arr, target_len):
+        """Pad or truncate array to target length."""
+        if len(arr) > target_len:
+            return arr[:target_len]
+        elif len(arr) < target_len:
+            return np.pad(arr, (0, target_len - len(arr)), mode='edge')
+        return arr
     
-    # ACC at 32Hz (3 channels)
+    # # PPG at 64Hz (DISABLED - using HR/HRV instead)
+    # ppg_df = signals.get("ppg")
+    # if ppg_df is not None and "value" in ppg_df.columns:
+    #     result["ppg"] = extract_signal_at_native_rate(
+    #         ppg_df, "value", ppg_df["timestamp"],
+    #         window_start, window_end, config.ppg_sample_rate
+    #     )
+    # else:
+    #     result["ppg"] = np.zeros(config.ppg_samples_per_window, dtype=np.float32)
+    
+    # ACC at 32Hz (3 channels: acc_x, acc_y, acc_z)
     acc_df = signals.get("acc")
     if acc_df is not None:
         acc_channels = []
@@ -132,6 +144,7 @@ def load_multirate_window(
                     acc_df, col, acc_df["timestamp"],
                     window_start, window_end, config.acc_sample_rate
                 )
+                channel = ensure_length(channel, config.acc_samples_per_window)
             else:
                 channel = np.zeros(config.acc_samples_per_window, dtype=np.float32)
             acc_channels.append(channel)
@@ -139,15 +152,67 @@ def load_multirate_window(
     else:
         result["acc"] = np.zeros((3, config.acc_samples_per_window), dtype=np.float32)
     
-    # Temperature at 1Hz
+    # Physiological signals at 1Hz (5 channels: skin_temp, heatflux, cbt, hr_bpm, rmssd)
+    physio_channels = []
+    
+    # 1. skin_temp from heatflux sensor
     hf_df = signals.get("heatflux")
     if hf_df is not None and "skin_temp" in hf_df.columns:
-        result["temp"] = extract_signal_at_native_rate(
+        skin_temp = extract_signal_at_native_rate(
             hf_df, "skin_temp", hf_df["timestamp"],
-            window_start, window_end, config.temp_sample_rate
+            window_start, window_end, config.physio_sample_rate
         )
+        skin_temp = ensure_length(skin_temp, config.physio_samples_per_window)
     else:
-        result["temp"] = np.zeros(config.temp_samples_per_window, dtype=np.float32)
+        skin_temp = np.zeros(config.physio_samples_per_window, dtype=np.float32)
+    physio_channels.append(skin_temp)
+    
+    # 2. heatflux from heatflux sensor
+    if hf_df is not None and "heatflux" in hf_df.columns:
+        heatflux = extract_signal_at_native_rate(
+            hf_df, "heatflux", hf_df["timestamp"],
+            window_start, window_end, config.physio_sample_rate
+        )
+        heatflux = ensure_length(heatflux, config.physio_samples_per_window)
+    else:
+        heatflux = np.zeros(config.physio_samples_per_window, dtype=np.float32)
+    physio_channels.append(heatflux)
+    
+    # 3. cbt (core body temperature) from heatflux sensor
+    if hf_df is not None and "cbt" in hf_df.columns:
+        cbt = extract_signal_at_native_rate(
+            hf_df, "cbt", hf_df["timestamp"],
+            window_start, window_end, config.physio_sample_rate
+        )
+        cbt = ensure_length(cbt, config.physio_samples_per_window)
+    else:
+        cbt = np.zeros(config.physio_samples_per_window, dtype=np.float32)
+    physio_channels.append(cbt)
+    
+    # 4. hr_bpm from aligned data (already at 1Hz)
+    aligned_df = signals.get("aligned")
+    if aligned_df is not None and "hr_bpm" in aligned_df.columns:
+        hr_bpm = extract_signal_at_native_rate(
+            aligned_df, "hr_bpm", aligned_df["timestamp"],
+            window_start, window_end, config.physio_sample_rate
+        )
+        hr_bpm = ensure_length(hr_bpm, config.physio_samples_per_window)
+    else:
+        hr_bpm = np.zeros(config.physio_samples_per_window, dtype=np.float32)
+    physio_channels.append(hr_bpm)
+    
+    # 5. rmssd (HRV) from aligned data (already at 1Hz)
+    if aligned_df is not None and "rmssd" in aligned_df.columns:
+        rmssd = extract_signal_at_native_rate(
+            aligned_df, "rmssd", aligned_df["timestamp"],
+            window_start, window_end, config.physio_sample_rate
+        )
+        rmssd = ensure_length(rmssd, config.physio_samples_per_window)
+    else:
+        rmssd = np.zeros(config.physio_samples_per_window, dtype=np.float32)
+    physio_channels.append(rmssd)
+    
+    result["physio"] = np.stack(physio_channels, axis=0)  # (5, n_physio_samples)
     
     return result
 
@@ -156,10 +221,9 @@ class MultiRateDataset(Dataset):
     """
     PyTorch Dataset for Multi-Rate Late Fusion.
     
-    Returns samples as dictionary of modality tensors:
-    - ppg: (ppg_samples,) at 64Hz
-    - acc: (3, acc_samples) at 32Hz
-    - temp: (temp_samples,) at 1Hz
+    Returns samples as dictionary of modality tensors (Same 8 channels as MOMENT):
+    - acc: (3, acc_samples) at 32Hz - acc_x, acc_y, acc_z
+    - physio: (5, physio_samples) at 1Hz - skin_temp, heatflux, cbt, hr_bpm, rmssd
     - label: Binary label
     - subject_id: Integer subject index
     """
@@ -190,9 +254,8 @@ class MultiRateDataset(Dataset):
         self.subject_to_idx = subject_to_idx
         
         # Process windows
-        self.ppg_data = []
         self.acc_data = []
-        self.temp_data = []
+        self.physio_data = []
         self.labels = []
         self.subject_ids = []
         
@@ -201,38 +264,36 @@ class MultiRateDataset(Dataset):
             if multirate is None:
                 continue
             
-            ppg = multirate.get("ppg", np.zeros(config.ppg_samples_per_window))
             acc = multirate.get("acc", np.zeros((3, config.acc_samples_per_window)))
-            temp = multirate.get("temp", np.zeros(config.temp_samples_per_window))
+            physio = multirate.get("physio", np.zeros((5, config.physio_samples_per_window)))
             
             # Ensure correct shapes
-            if len(ppg) != config.ppg_samples_per_window:
-                ppg = self._pad_or_truncate(ppg, config.ppg_samples_per_window)
             if acc.shape[1] != config.acc_samples_per_window:
                 acc = np.stack([
                     self._pad_or_truncate(acc[i], config.acc_samples_per_window)
                     for i in range(3)
                 ])
-            if len(temp) != config.temp_samples_per_window:
-                temp = self._pad_or_truncate(temp, config.temp_samples_per_window)
+            if physio.shape[1] != config.physio_samples_per_window:
+                physio = np.stack([
+                    self._pad_or_truncate(physio[i], config.physio_samples_per_window)
+                    for i in range(5)
+                ])
             
-            self.ppg_data.append(ppg)
             self.acc_data.append(acc)
-            self.temp_data.append(temp)
+            self.physio_data.append(physio)
             self.labels.append(window.get(config.target_label, 0))
             
             subject_str = window.get("subject_id", "unknown")
             self.subject_ids.append(subject_to_idx.get(subject_str, 0))
         
         # Convert to arrays
-        self.ppg_data = np.stack(self.ppg_data).astype(np.float32)
         self.acc_data = np.stack(self.acc_data).astype(np.float32)
-        self.temp_data = np.stack(self.temp_data).astype(np.float32)
+        self.physio_data = np.stack(self.physio_data).astype(np.float32)
         self.labels = np.array(self.labels, dtype=np.int64)
         self.subject_ids = np.array(self.subject_ids, dtype=np.int64)
         
         # Normalize
-        if normalize and len(self.ppg_data) > 0:
+        if normalize and len(self.acc_data) > 0:
             self._normalize()
     
     def _pad_or_truncate(self, arr: np.ndarray, target_len: int) -> np.ndarray:
@@ -246,28 +307,22 @@ class MultiRateDataset(Dataset):
     def _normalize(self):
         """Normalize each modality."""
         # Handle NaN
-        self.ppg_data = np.nan_to_num(self.ppg_data, nan=0.0).astype(np.float32)
         self.acc_data = np.nan_to_num(self.acc_data, nan=0.0).astype(np.float32)
-        self.temp_data = np.nan_to_num(self.temp_data, nan=0.0).astype(np.float32)
+        self.physio_data = np.nan_to_num(self.physio_data, nan=0.0).astype(np.float32)
         
-        # PPG: per-sample normalization (removes baseline drift)
-        ppg_mean = self.ppg_data.mean(axis=1, keepdims=True)
-        ppg_std = self.ppg_data.std(axis=1, keepdims=True)
-        ppg_std = np.where(ppg_std == 0, 1, ppg_std)
-        self.ppg_data = ((self.ppg_data - ppg_mean) / ppg_std).astype(np.float32)
-        
-        # ACC: per-channel normalization
+        # ACC: per-channel normalization (3 channels: acc_x, acc_y, acc_z)
         for i in range(3):
             mean = self.acc_data[:, i, :].mean()
             std = self.acc_data[:, i, :].std()
             if std > 0:
                 self.acc_data[:, i, :] = ((self.acc_data[:, i, :] - mean) / std).astype(np.float32)
         
-        # Temp: global normalization
-        temp_mean = self.temp_data.mean()
-        temp_std = self.temp_data.std()
-        if temp_std > 0:
-            self.temp_data = ((self.temp_data - temp_mean) / temp_std).astype(np.float32)
+        # Physio: per-channel normalization (5 channels: skin_temp, heatflux, cbt, hr_bpm, rmssd)
+        for i in range(5):
+            mean = self.physio_data[:, i, :].mean()
+            std = self.physio_data[:, i, :].std()
+            if std > 0:
+                self.physio_data[:, i, :] = ((self.physio_data[:, i, :] - mean) / std).astype(np.float32)
     
     def __len__(self) -> int:
         return len(self.labels)
@@ -277,12 +332,11 @@ class MultiRateDataset(Dataset):
         Get sample by index.
         
         Returns:
-            Dictionary with ppg, acc, temp, label, subject_id tensors
+            Dictionary with acc, physio, label, subject_id tensors
         """
         return {
-            "ppg": torch.from_numpy(self.ppg_data[idx]),
             "acc": torch.from_numpy(self.acc_data[idx]),
-            "temp": torch.from_numpy(self.temp_data[idx]),
+            "physio": torch.from_numpy(self.physio_data[idx]),
             "label": torch.tensor(self.labels[idx]),
             "subject_id": torch.tensor(self.subject_ids[idx])
         }
@@ -418,9 +472,8 @@ def create_loso_dataloaders(
 def collate_multirate(batch: List[Dict]) -> Dict[str, torch.Tensor]:
     """Custom collate function for multi-rate batches."""
     return {
-        "ppg": torch.stack([b["ppg"] for b in batch]),
         "acc": torch.stack([b["acc"] for b in batch]),
-        "temp": torch.stack([b["temp"] for b in batch]),
+        "physio": torch.stack([b["physio"] for b in batch]),
         "label": torch.stack([b["label"] for b in batch]),
         "subject_id": torch.stack([b["subject_id"] for b in batch])
     }
@@ -447,9 +500,8 @@ if __name__ == "__main__":
         # Test sample
         sample = dataset[0]
         print(f"\nSample shapes:")
-        print(f"  PPG: {sample['ppg'].shape}")
         print(f"  ACC: {sample['acc'].shape}")
-        print(f"  Temp: {sample['temp'].shape}")
+        print(f"  Physio: {sample['physio'].shape}")
         print(f"  Label: {sample['label']}")
         
         # Test DataLoader
@@ -460,9 +512,8 @@ if __name__ == "__main__":
         
         for batch in loader:
             print(f"\nBatch shapes:")
-            print(f"  PPG: {batch['ppg'].shape}")
             print(f"  ACC: {batch['acc'].shape}")
-            print(f"  Temp: {batch['temp'].shape}")
+            print(f"  Physio: {batch['physio'].shape}")
             break
     
     print("\nAll tests passed!")

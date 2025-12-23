@@ -1,16 +1,18 @@
 """
 Multi-Rate Late Fusion Model.
 
-Combines embeddings from modality-specific encoders using late fusion:
+Combines embeddings from modality-specific encoders using late fusion.
+Same 8 channels as MOMENT but at native rates:
 1. Each encoder processes its signal at native rate
 2. Embeddings are concatenated
 3. Fusion layer combines information
 4. Classifier predicts stress
 
 Architecture:
-    PPG (64Hz) → PPGEncoder → 128-d
-    ACC (32Hz) → ACCEncoder → 128-d  →  Concat (320-d) → Fusion → Classifier
-    Temp (1Hz) → TempEncoder → 64-d
+    ACC (32Hz, 3ch) → ACCEncoder → 128-d  →  Concat (256-d) → Fusion → Classifier
+    Physio (1Hz, 5ch) → PhysioEncoder → 128-d
+
+Note: PPG is disabled. Using HR and HRV (RMSSD) instead.
 """
 
 import torch
@@ -18,7 +20,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from typing import Dict, Optional
 
-from encoders import PPGEncoder, ACCEncoder, TempEncoder, create_encoders, count_parameters
+from encoders import ACCEncoder, PhysioEncoder, create_encoders, count_parameters
 from config import MultiRateConfig
 
 
@@ -111,53 +113,48 @@ class MultiRateFusionModel(nn.Module):
     
     Processes each modality at native rate with separate encoders,
     then fuses embeddings for classification.
+    
+    Same 8 channels as MOMENT but at native rates.
     """
     
     def __init__(
         self,
         config: MultiRateConfig,
-        ppg_encoder: Optional[PPGEncoder] = None,
         acc_encoder: Optional[ACCEncoder] = None,
-        temp_encoder: Optional[TempEncoder] = None
+        physio_encoder: Optional[PhysioEncoder] = None
     ):
         """
         Initialize fusion model.
         
         Args:
             config: Multi-rate configuration
-            ppg_encoder: Optional pre-created PPG encoder
             acc_encoder: Optional pre-created ACC encoder
-            temp_encoder: Optional pre-created Temp encoder
+            physio_encoder: Optional pre-created Physio encoder
         """
         super().__init__()
         
         self.config = config
         
         # Create or use provided encoders
-        if ppg_encoder is None or acc_encoder is None or temp_encoder is None:
-            ppg_enc, acc_enc, temp_enc = create_encoders(
+        if acc_encoder is None or physio_encoder is None:
+            acc_enc, physio_enc = create_encoders(
                 window_size_sec=config.window_size_sec,
-                ppg_rate=config.ppg_sample_rate,
                 acc_rate=config.acc_sample_rate,
-                temp_rate=config.temp_sample_rate,
-                ppg_dim=config.ppg_embedding_dim,
+                physio_rate=config.physio_sample_rate,
                 acc_dim=config.acc_embedding_dim,
-                temp_dim=config.temp_embedding_dim,
+                physio_dim=config.physio_embedding_dim,
                 dropout=config.dropout
             )
-            self.ppg_encoder = ppg_enc
             self.acc_encoder = acc_enc
-            self.temp_encoder = temp_enc
+            self.physio_encoder = physio_enc
         else:
-            self.ppg_encoder = ppg_encoder
             self.acc_encoder = acc_encoder
-            self.temp_encoder = temp_encoder
+            self.physio_encoder = physio_encoder
         
         # Total embedding dimension after concatenation
         total_embed_dim = (
-            config.ppg_embedding_dim +
             config.acc_embedding_dim +
-            config.temp_embedding_dim
+            config.physio_embedding_dim
         )
         
         # Fusion and classifier
@@ -177,18 +174,17 @@ class MultiRateFusionModel(nn.Module):
         Forward pass through all encoders and fusion.
         
         Args:
-            batch: Dictionary with 'ppg', 'acc', 'temp' tensors
+            batch: Dictionary with 'acc', 'physio' tensors
         
         Returns:
             Class logits (batch, 2)
         """
         # Encode each modality
-        ppg_emb = self.ppg_encoder(batch["ppg"])
         acc_emb = self.acc_encoder(batch["acc"])
-        temp_emb = self.temp_encoder(batch["temp"])
+        physio_emb = self.physio_encoder(batch["physio"])
         
         # Concatenate embeddings
-        combined = torch.cat([ppg_emb, acc_emb, temp_emb], dim=-1)
+        combined = torch.cat([acc_emb, physio_emb], dim=-1)
         
         # Fuse and classify
         fused = self.fusion(combined)
@@ -201,22 +197,20 @@ class MultiRateFusionModel(nn.Module):
         Get individual and combined embeddings.
         
         Args:
-            batch: Dictionary with 'ppg', 'acc', 'temp' tensors
+            batch: Dictionary with 'acc', 'physio' tensors
         
         Returns:
             Dictionary with embeddings for each modality and fused
         """
-        ppg_emb = self.ppg_encoder(batch["ppg"])
         acc_emb = self.acc_encoder(batch["acc"])
-        temp_emb = self.temp_encoder(batch["temp"])
+        physio_emb = self.physio_encoder(batch["physio"])
         
-        combined = torch.cat([ppg_emb, acc_emb, temp_emb], dim=-1)
+        combined = torch.cat([acc_emb, physio_emb], dim=-1)
         fused = self.fusion(combined)
         
         return {
-            "ppg": ppg_emb,
             "acc": acc_emb,
-            "temp": temp_emb,
+            "physio": physio_emb,
             "combined": combined,
             "fused": fused
         }
@@ -226,7 +220,7 @@ class MultiRateFusionModel(nn.Module):
         Get probability predictions.
         
         Args:
-            batch: Dictionary with 'ppg', 'acc', 'temp' tensors
+            batch: Dictionary with 'acc', 'physio' tensors
         
         Returns:
             Probabilities (batch, 2)
@@ -273,17 +267,15 @@ if __name__ == "__main__":
         # Create dummy batch
         batch_size = 4
         batch = {
-            "ppg": torch.randn(batch_size, config.ppg_samples_per_window),
             "acc": torch.randn(batch_size, 3, config.acc_samples_per_window),
-            "temp": torch.randn(batch_size, config.temp_samples_per_window),
+            "physio": torch.randn(batch_size, 5, config.physio_samples_per_window),
             "label": torch.randint(0, 2, (batch_size,)),
             "subject_id": torch.randint(0, 5, (batch_size,))
         }
         
         print(f"\nInput shapes:")
-        print(f"  PPG:  {batch['ppg'].shape}")
-        print(f"  ACC:  {batch['acc'].shape}")
-        print(f"  Temp: {batch['temp'].shape}")
+        print(f"  ACC:    {batch['acc'].shape}")
+        print(f"  Physio: {batch['physio'].shape}")
         
         # Forward pass
         logits = model(batch)
@@ -300,12 +292,11 @@ if __name__ == "__main__":
         
         # Parameter counts
         print(f"\nParameter counts:")
-        print(f"  PPG Encoder:  {count_parameters(model.ppg_encoder):,}")
-        print(f"  ACC Encoder:  {count_parameters(model.acc_encoder):,}")
-        print(f"  Temp Encoder: {count_parameters(model.temp_encoder):,}")
-        print(f"  Fusion:       {count_parameters(model.fusion):,}")
-        print(f"  Classifier:   {count_parameters(model.classifier):,}")
-        print(f"  Total:        {count_parameters(model):,}")
+        print(f"  ACC Encoder:    {count_parameters(model.acc_encoder):,}")
+        print(f"  Physio Encoder: {count_parameters(model.physio_encoder):,}")
+        print(f"  Fusion:         {count_parameters(model.fusion):,}")
+        print(f"  Classifier:     {count_parameters(model.classifier):,}")
+        print(f"  Total:          {count_parameters(model):,}")
     
     print("\nAll tests passed!")
 

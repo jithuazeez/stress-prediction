@@ -287,50 +287,30 @@ def train_fold(
     # Get predictions on training data
     y_train_true, _, y_train_proba = evaluate_model(model, train_loader, device)
     
-    # Try different threshold methods including constrained gmean
-    threshold_methods = ["youden", "f1", "balanced", "geometric_mean", "constrained_gmean"]
-    threshold_results = {}
+    # Use constrained gmean as default (same as MOMENT)
+    # This ensures minimum recall (0.85) while maintaining low false positive rate (max 0.20)
+    optimal_threshold, _ = find_optimal_threshold(
+        y_train_true, y_train_proba,
+        method="constrained_gmean",
+        min_recall=0.85,
+        max_fpr=0.20
+    )
     
-    logger.info(f"  Comparing threshold methods on training data:")
+    # Evaluate with optimal threshold
+    _, y_train_pred, _ = evaluate_model(model, train_loader, device, threshold=optimal_threshold)
+    train_metrics = compute_training_metrics(y_train_true, y_train_pred, y_train_proba)
     
-    for method in threshold_methods:
-        # Find threshold with this method
-        if method == "constrained_gmean":
-            thresh, _ = find_optimal_threshold(
-                y_train_true, y_train_proba,
-                method=method,
-                min_recall=0.85,
-                max_fpr=0.20
-            )
-        else:
-            thresh, _ = find_optimal_threshold(y_train_true, y_train_proba, method=method)
-        
-        # Apply to training data to evaluate
-        _, y_train_pred, _ = evaluate_model(model, train_loader, device, threshold=thresh)
-        train_metrics = compute_training_metrics(y_train_true, y_train_pred, y_train_proba)
-        
-        threshold_results[method] = {
-            "threshold": thresh,
-            "gmean": train_metrics["gmean"],
-            "recall": train_metrics["recall"],
-            "precision": train_metrics["precision"],
-            "balanced_accuracy": train_metrics["balanced_accuracy"],
-            "specificity": train_metrics["specificity"]
-        }
-        
-        logger.info(
-            f"    {method:15s}: thresh={thresh:.3f}, "
-            f"G-mean={train_metrics['gmean']:.3f}, "
-            f"Recall={train_metrics['recall']:.3f}, "
-            f"Prec={train_metrics['precision']:.3f}, "
-            f"Spec={train_metrics['specificity']:.3f}"
-        )
-    
-    # Choose best method based on G-mean (highest balance)
-    best_method = max(threshold_results.keys(), key=lambda m: threshold_results[m]["gmean"])
-    optimal_threshold = threshold_results[best_method]["threshold"]
-    
-    logger.info(f"  → Selected method: {best_method} with G-mean={threshold_results[best_method]['gmean']:.3f}")
+    logger.info(
+        f"  Constrained G-mean threshold: {optimal_threshold:.4f} "
+        f"(min_recall=0.85, max_fpr=0.20)"
+    )
+    logger.info(
+        f"  Training metrics: "
+        f"G-mean={train_metrics['gmean']:.3f}, "
+        f"Recall={train_metrics['recall']:.3f}, "
+        f"Precision={train_metrics['precision']:.3f}, "
+        f"Specificity={train_metrics['specificity']:.3f}"
+    )
     
     # Evaluate on test set with selected threshold
     y_true, y_pred, y_proba = evaluate_model(model, test_loader, device, threshold=optimal_threshold)
@@ -343,14 +323,11 @@ def train_fold(
     metrics["gmean"] = test_metrics["gmean"]
     
     # Save threshold method info
-    metrics["threshold_method"] = best_method
+    metrics["threshold_method"] = "constrained_gmean"
     metrics["optimal_threshold"] = optimal_threshold
     metrics["train_epochs"] = epoch + 1
-    
-    # Add all threshold comparison results
-    for method, results in threshold_results.items():
-        metrics[f"train_{method}_threshold"] = results["threshold"]
-        metrics[f"train_{method}_gmean"] = results["gmean"]
+    metrics["min_recall"] = 0.85
+    metrics["max_fpr"] = 0.20
     
     return metrics, y_true, y_pred, y_proba
 
@@ -505,12 +482,13 @@ def main():
     logger.info(f"  Window: {config.window_size_sec}s")
     logger.info(f"  Horizon: {args.horizon} min")
     logger.info(f"  Target: {config.target_label}")
-    logger.info(f"  PPG samples: {config.ppg_samples_per_window}")
-    logger.info(f"  ACC samples: {config.acc_samples_per_window}")
-    logger.info(f"  Temp samples: {config.temp_samples_per_window}")
+    logger.info(f"  ACC samples: {config.acc_samples_per_window} (3 channels at 32Hz)")
+    logger.info(f"  Physio samples: {config.physio_samples_per_window} (5 channels at 1Hz)")
+    logger.info(f"  Threshold method: constrained_gmean (min_recall=0.85, max_fpr=0.20)")
+    logger.info(f"  Channels: acc_x, acc_y, acc_z, skin_temp, heatflux, cbt, hr_bpm, rmssd")
     
     # Device
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = torch.device("cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu")
     logger.info(f"Device: {device}")
     
     # Set random seed
@@ -569,7 +547,8 @@ def main():
     print(f"MULTI-RATE FUSION - LOSO Results")
     print(f"{'='*60}")
     print(f"Window: {config.window_size_sec}s | Horizon: {args.horizon}min")
-    print(f"Threshold Method: G-mean (geometric mean)")
+    print(f"Channels: 8 (same as MOMENT, at native rates)")
+    print(f"Threshold Method: constrained_gmean (min_recall=0.85, max_fpr=0.20)")
     print(f"AUROC: {aggregated.get('auroc_mean', 0):.3f} ± {aggregated.get('auroc_std', 0):.3f}")
     print(f"PR-AUC: {aggregated.get('pr_auc_mean', 0):.3f} ± {aggregated.get('pr_auc_std', 0):.3f}")
     print(f"F1: {aggregated.get('f1_mean', 0):.3f} ± {aggregated.get('f1_std', 0):.3f}")

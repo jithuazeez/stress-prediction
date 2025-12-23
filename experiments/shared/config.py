@@ -19,8 +19,8 @@ class Config:
     
     # Paths
     # data_path: Path = Path("/Users/jithuazeez/Documents/Msc/Dissertation/Datasets/VitaStress/data")
-    data_path: Path = Path("/kaggle/input/vitastress/VitaStress/data")
-    # data_path: Path = Path("/kaggle/input/vitastess2/VitaStress/data")
+    # data_path: Path = Path("/kaggle/input/vitastress/VitaStress/data")
+    data_path: Path = Path("/kaggle/input/vitastess2/VitaStress/data")
     # results_base_path: Path = Path("/Users/jithuazeez/Documents/Msc/Dissertation/experiments")
     results_base_path: Path = Path("/kaggle/working/stress-prediction/experiments")
     # Window parameters
@@ -37,7 +37,7 @@ class Config:
     horizons_minutes: List[int] = field(default_factory=lambda: [3, 5, 10])
     
     # Target label for experiments
-    target_label: str = "label_3min"
+    target_label: str = "label_5min"
     
     # Sampling rates (from VitaStress dataset)
     # NOTE: These are used as defaults but should be calculated from data
