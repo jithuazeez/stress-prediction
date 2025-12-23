@@ -419,19 +419,21 @@ def loso_cross_validation(windows_by_subject: Dict[str, List[Dict]],
         
         # Create model with selective unfreezing
         # RECOMMENDED: unfreeze_last_n_blocks=2 for ~1000 samples
+        use_simple = True
         model = create_moment_model(
             n_channels=config.n_channels,
             num_classes=2,
             freeze_backbone=True,
             unfreeze_last_n_blocks=0,
-            use_simple=True
+            use_simple=use_simple
         ).to(device)
         
         # Log trainable parameters (only on first fold) - compact format
         if fold_idx == 0:
-            param_info = model.get_trainable_params_info()
-            logger.info(f"Model: {param_info['total_params']:,} params | Trainable: {param_info['trainable_params']:,} ({param_info['trainable_pct']:.1f}%)")
-        
+            if not use_simple:
+                param_info = model.get_trainable_params_info()
+                logger.info(f"Model: {param_info['total_params']:,} params | Trainable: {param_info['trainable_params']:,} ({param_info['trainable_pct']:.1f}%)")
+
         # Class weights
         n_pos = sum(1 for w in train_windows if w.get(config.target_label, 0) == 1)
         n_neg = len(train_windows) - n_pos
