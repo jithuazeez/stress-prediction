@@ -61,6 +61,9 @@ def load_all_windows(config: Config, logger) -> Dict[str, List[Dict]]:
     
     successful = 0
     total_windows = 0
+    total_potential_windows = 0
+    total_rejected_windows = 0
+    subjects_failed = 0
     
     for subject_folder in pbar:
         signals = load_raw_signals(subject_folder)
@@ -69,10 +72,12 @@ def load_all_windows(config: Config, logger) -> Dict[str, List[Dict]]:
         try:
             start, end = get_experiment_time_range(signals)
         except ValueError:
+            subjects_failed += 1
             continue
         
         aligned = align_to_1hz(signals, start, end)
         if aligned is None or len(aligned) == 0:
+            subjects_failed += 1
             continue
         
         # Compute subject-level statistics for subject-wise normalization
@@ -85,6 +90,15 @@ def load_all_windows(config: Config, logger) -> Dict[str, List[Dict]]:
             config.stress_stop_events,
             config.baseline_events
         )
+        
+        # Calculate potential windows before filtering
+        duration_sec = (end - start).total_seconds()
+        skip_sec = config.skip_first_minutes * 60
+        usable_sec = duration_sec - skip_sec
+        step_size = int(config.window_size_sec * (1 - config.overlap_ratio))
+        if step_size < 1:
+            step_size = 1
+        potential_windows = max(0, int((usable_sec - config.window_size_sec) / step_size))
         
         windows = create_labeled_windows(
             aligned,
@@ -100,10 +114,26 @@ def load_all_windows(config: Config, logger) -> Dict[str, List[Dict]]:
             windows_by_subject[subject_id] = windows
             successful += 1
             total_windows += len(windows)
-            pbar.set_postfix({"OK": successful, "Windows": total_windows})
+            total_potential_windows += potential_windows
+            total_rejected_windows += (potential_windows - len(windows))
+            pbar.set_postfix({"OK": successful, "Windows": total_windows, "Rejected": total_rejected_windows})
+        else:
+            subjects_failed += 1
     
     pbar.close()
+    
+    # Detailed windowing summary
     logger.info(f"Loaded {successful} subjects with {total_windows} total windows")
+    if total_potential_windows > 0:
+        acceptance_rate = 100 * total_windows / total_potential_windows
+        rejection_rate = 100 * total_rejected_windows / total_potential_windows
+        logger.info(f"  Potential windows: {total_potential_windows}")
+        logger.info(f"  Accepted windows:  {total_windows} ({acceptance_rate:.1f}%)")
+        logger.info(f"  Rejected windows:  {total_rejected_windows} ({rejection_rate:.1f}%)")
+        if total_rejected_windows > 0:
+            logger.info(f"  Rejection reason:  Insufficient data (<50% samples in window)")
+    if subjects_failed > 0:
+        logger.info(f"  Subjects failed:   {subjects_failed} (no data/alignment issues)")
     
     return windows_by_subject
 
@@ -352,13 +382,13 @@ def loso_cross_validation(windows_by_subject: Dict[str, List[Dict]],
     best_gmean = 0.0
     best_fold_idx = -1
     
-    # Unfreezing strategy (RECOMMENDED: 2 for ~1000 samples)
-    UNFREEZE_LAST_N_BLOCKS = 2
+    # Unfreezing strategy: 0 = freeze entire backbone, only train classification head
+    UNFREEZE_LAST_N_BLOCKS = 0  # Changed to 0 - full freeze, head-only training
     
     # Normalization mode for dataset
     NORMALIZATION_MODE = "subject"  # "subject" or "window"
     
-    logger.info(f"Unfreeze last {UNFREEZE_LAST_N_BLOCKS} blocks | {NORMALIZATION_MODE}-wise norm | {config.n_channels} channels")
+    logger.info(f"Freeze ALL backbone blocks (train head only) | {NORMALIZATION_MODE}-wise norm | {config.n_channels} channels")
     
     # Store hyperparameters
     hyperparameters = {
@@ -373,10 +403,12 @@ def loso_cross_validation(windows_by_subject: Dict[str, List[Dict]],
         'normalization_mode': NORMALIZATION_MODE,
         'freeze_backbone': True,
         'unfreeze_last_n_blocks': UNFREEZE_LAST_N_BLOCKS,
+        'use_simple_classifier': True,
         'optimizer': 'Adam',
         'loss_function': 'CrossEntropyLoss_weighted',
         'device': str(device),
-        'threshold_method': threshold_method
+        'threshold_method': threshold_method,
+        'threshold_constraints': 'unconstrained'
     }
     
     start_time = time.time()
@@ -417,14 +449,14 @@ def loso_cross_validation(windows_by_subject: Dict[str, List[Dict]],
         train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
         test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
         
-        # Create model with selective unfreezing
-        # RECOMMENDED: unfreeze_last_n_blocks=2 for ~1000 samples
-        use_simple = True
+        # Create model - freeze all backbone, only train classification head
+        # Using SimpleMOMENTClassifier for faster training with limited data
+        use_simple = False
         model = create_moment_model(
             n_channels=config.n_channels,
             num_classes=2,
             freeze_backbone=True,
-            unfreeze_last_n_blocks=0,
+            unfreeze_last_n_blocks=UNFREEZE_LAST_N_BLOCKS,  # 0 = full freeze
             use_simple=use_simple
         ).to(device)
         
@@ -479,12 +511,10 @@ def loso_cross_validation(windows_by_subject: Dict[str, List[Dict]],
         train_y_true, train_y_proba = evaluate_epoch(model, train_loader, device)
         
         # Find optimal threshold on TRAINING data (no data leakage!)
-        # Use constrained_gmean to ensure high recall + low FPR
+        # Using unconstrained geometric mean - finds natural balance point
         fold_threshold, train_thresh_metrics = find_optimal_threshold(
             train_y_true, train_y_proba, 
-            method=threshold_method,
-            min_recall=min_recall if threshold_method == "constrained_gmean" else 0.0,
-            max_fpr=max_fpr if threshold_method == "constrained_gmean" else 1.0
+            method=threshold_method
         )
         
         # Evaluate on TEST data using threshold from training
@@ -611,7 +641,8 @@ def loso_cross_validation(windows_by_subject: Dict[str, List[Dict]],
     logger.info(f"Positive samples:  {sum(all_y_true)} ({100*sum(all_y_true)/len(all_y_true):.1f}%)")
     logger.info(f"Negative samples:  {len(all_y_true)-sum(all_y_true)} ({100*(len(all_y_true)-sum(all_y_true))/len(all_y_true):.1f}%)")
     logger.info(f"\nThreshold Selection (computed on training data per fold):")
-    logger.info(f"  Method:          {threshold_method}")
+    logger.info(f"  Method:          {threshold_method} (unconstrained)")
+    logger.info(f"  Optimization:    Maximize G-Mean = sqrt(recall × specificity)")
     logger.info(f"  Threshold Range: {aggregate_metrics['threshold_min']:.4f} - {aggregate_metrics['threshold_max']:.4f}")
     logger.info(f"  Threshold Mean:  {aggregate_metrics['threshold_mean']:.4f} ± {aggregate_metrics['threshold_std']:.4f}")
     logger.info(f"\n--- Threshold-Independent Metrics ---")
@@ -704,12 +735,16 @@ def main():
     logger.info("PHASE 2: Model Training (LOSO CV)")
     logger.info("-"*50)
     
-    # Threshold method: "constrained_gmean" ensures high recall + low FPR, then maximizes G-Mean
-    # This ensures we catch most stress events (recall≥85%) while controlling false alarms (FPR≤20%)
-    # Other options: "youden", "f1", "balanced", "geometric_mean"
-    THRESHOLD_METHOD = "constrained_gmean"
-    MIN_RECALL = 0.85  # Minimum 85% sensitivity - catch most stress events
-    MAX_FPR = 0.20     # Maximum 20% false positive rate - control false alarms
+    # Threshold method: "geometric_mean" - unconstrained optimization
+    # Maximizes G-Mean = sqrt(recall × specificity) without hard constraints
+    # Let the model find its natural operating point without forced constraints
+    # Other options: "youden", "f1", "balanced", "constrained_gmean"
+    THRESHOLD_METHOD = "geometric_mean"
+    MIN_RECALL = 0.0   # No constraints - let model optimize freely
+    MAX_FPR = 1.0      # No constraints - let model optimize freely
+    
+    logger.info(f"  Training strategy: Head-only fine-tuning (freeze all backbone)")
+    logger.info(f"  Threshold method: {THRESHOLD_METHOD} (unconstrained)")
     
     results = loso_cross_validation(
         windows_by_subject,

@@ -318,6 +318,11 @@ def create_labeled_windows(aligned_df: pd.DataFrame,
     """
     windows = []
     
+    # Track statistics
+    total_potential = 0
+    total_rejected = 0
+    reject_reasons = {"insufficient_data": 0}
+    
     if aligned_df is None or len(aligned_df) == 0:
         return windows
     
@@ -346,6 +351,8 @@ def create_labeled_windows(aligned_df: pd.DataFrame,
     window_id = 0
     
     while current_start + timedelta(seconds=window_size_sec) <= end_time:
+        total_potential += 1
+        
         window_start = current_start
         window_end = current_start + timedelta(seconds=window_size_sec)
         window_center = current_start + timedelta(seconds=window_size_sec / 2)
@@ -355,7 +362,8 @@ def create_labeled_windows(aligned_df: pd.DataFrame,
         window_data = aligned_df.loc[mask].copy()
         
         if len(window_data) < window_size_sec * 0.5:  # Skip if less than 50% data
-            logger.warning(f"Window {window_id} has less than 50% data, skipping")
+            total_rejected += 1
+            reject_reasons["insufficient_data"] += 1
             current_start = current_start + timedelta(seconds=step_size)
             continue
         
@@ -403,6 +411,17 @@ def create_labeled_windows(aligned_df: pd.DataFrame,
         windows.append(window_dict)
         window_id += 1
         current_start = current_start + timedelta(seconds=step_size)
+    
+    # Log windowing statistics
+    total_accepted = len(windows)
+    if total_potential > 0:
+        acceptance_rate = 100 * total_accepted / total_potential
+        rejection_rate = 100 * total_rejected / total_potential
+        
+        logger.debug(f"Windowing stats: {total_accepted}/{total_potential} windows accepted "
+                    f"({acceptance_rate:.1f}%), {total_rejected} rejected ({rejection_rate:.1f}%)")
+        if total_rejected > 0:
+            logger.debug(f"  Rejection reasons: {reject_reasons}")
     
     return windows
 
