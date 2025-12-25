@@ -73,6 +73,7 @@ def collect_all_results(base_dir: Path, logger) -> Dict[str, Dict]:
         "MOMENT": ("02_moment", "moment"),
         "TS2Vec": ("03_ts2vec", "ts2vec"),
         "MAML": ("04_maml", "maml"),
+        "TabPFN": ("07_tabpfn", "tabpfn"),
     }
     
     results = {}

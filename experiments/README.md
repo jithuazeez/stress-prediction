@@ -1,6 +1,6 @@
 # VitaStress Multi-Model Stress Prediction Experiments
 
-This directory contains 6 distinct modeling approaches for stress prediction from multimodal wearable sensor data.
+This directory contains 7 distinct modeling approaches for stress prediction from multimodal wearable sensor data.
 
 ## Quick Start
 
@@ -24,6 +24,9 @@ python 05_subject_aware_ssl/train.py --mode invariant --window_size 120 --horizo
 
 # NEW: Multi-Rate Late Fusion
 python 06_multirate_fusion/train.py --window_size 120 --horizon 3
+
+# NEW: TabPFN Foundation Model
+python 07_tabpfn/train.py
 
 # Run all configurations
 python 05_subject_aware_ssl/run_all.py
@@ -88,6 +91,10 @@ experiments/
 │   ├── config.py               # Multi-rate configuration
 │   ├── train.py                # Training with LOSO
 │   └── run_all.py              # Run all configurations
+│
+├── 07_tabpfn/                  # TabPFN Foundation Model (NEW)
+│   ├── train.py                # TabPFN training script
+│   └── README.md               # Documentation
 │
 ├── compare_all.py              # Compare all experiments
 ├── requirements.txt            # Dependencies
@@ -180,6 +187,23 @@ Raw Data Files (per subject)
 - Separate 1D CNN encoders per modality
 - Late fusion of embeddings
 - Classification head
+
+### 7. TabPFN Foundation Model (07_tabpfn) - NEW
+
+**Approach:** Apply pre-trained TabPFN foundation model to extracted features
+
+**Reference:** [TabPFN: A Transformer That Solves Small Tabular Classification Problems in a Second](https://github.com/PriorLabs/TabPFN) | [Nature Paper](https://www.nature.com/articles/s41586-024-08328-6)
+
+**Key advantages:**
+- Pre-trained on diverse synthetic tabular data
+- No hyperparameter tuning needed
+- Fast inference (~10-20s per fold)
+- Automatic handling of imbalance and missing values
+- Designed for small datasets (<50K samples)
+
+**Input:** Same ~65 features as classical ML (accelerometer, temperature, HR/HRV)
+
+**Position:** Bridges classical ML and deep learning - uses engineered features but with foundation model approach
 
 ## Evaluation
 

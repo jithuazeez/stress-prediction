@@ -29,6 +29,15 @@ ts2vec>=0.1.0
 #   pip install git+https://github.com/learnables/learn2learn.git
 learn2learn>=0.2.0
 
+# Tabular foundation model - TabPFN
+# Reference: https://github.com/PriorLabs/TabPFN
+# Paper (Nature): https://www.nature.com/articles/s41586-024-08328-6
+# Note: Requires HuggingFace authentication
+#   1. Install: pip install tabpfn
+#   2. Login: huggingface-cli login
+#   3. Accept license at: https://huggingface.co/Prior-Labs/tabpfn_2_5
+tabpfn>=6.0.0
+
 # Visualization
 matplotlib>=3.7.0
 seaborn>=0.12.0
