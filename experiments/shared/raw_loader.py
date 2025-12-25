@@ -93,17 +93,17 @@ def load_raw_signals(subject_folder: Path) -> Dict[str, Optional[pd.DataFrame]]:
     
     # Load emography/EDA (~0.017 Hz)
     # CSV has columns: date, cz, pcz, pczt, czh, cc, quality, stress_skin, stress_skin_quality
-    eda_file = subject_folder / f"{subject_id}_emography.csv"
-    if eda_file.exists():
-        try:
-            df = pd.read_csv(eda_file)
-            # Rename 'date' to 'timestamp' for consistency
-            if "date" in df.columns:
-                df = df.rename(columns={"date": "timestamp"})
-            df["timestamp"] = pd.to_datetime(df["timestamp"], format="ISO8601")
-            signals["emography"] = df
-        except Exception as e:
-            print(f"Warning: Failed to load emography for {subject_id}: {e}")
+    # eda_file = subject_folder / f"{subject_id}_emography.csv"
+    # if eda_file.exists():
+    #     try:
+    #         df = pd.read_csv(eda_file)
+    #         # Rename 'date' to 'timestamp' for consistency
+    #         if "date" in df.columns:
+    #             df = df.rename(columns={"date": "timestamp"})
+    #         df["timestamp"] = pd.to_datetime(df["timestamp"], format="ISO8601")
+    #         signals["emography"] = df
+    #     except Exception as e:
+    #         print(f"Warning: Failed to load emography for {subject_id}: {e}")
     
     # Load heat flux + temperature (1 Hz)
     # CSV has columns: date, skin_temp, heatflux, acc_x, acc_y, acc_z, pulse_rate, cbt

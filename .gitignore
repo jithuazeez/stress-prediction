@@ -7,3 +7,4 @@ __pycache__/
 /panic_prediction_env/
 /experiments/**/results/
 /cursor/
+/papers/

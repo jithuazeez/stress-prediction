@@ -16,15 +16,17 @@ Key features:
 - Missing data analysis per modality
 - Class ratio reporting
 
-Features (~61 total, NO PPG):
+Features (~65 total):
 - Accelerometer (41): stress indicators + activity classification
 - Temperature (7): skin_temp stats, slope, change
-- Heat Flux (4): heatflux mean, std, cbt mean, change
-- EDA (9): tonic stats, peaks, trend, change
+- Heat Flux (9): heatflux + CBT enhanced features
+- HR/HRV from PPG (8): time-domain features only from 64Hz HeartPy
+  (includes: hr_bpm, hr_std, hrv_mean_rr, hrv_sdnn, hrv_rmssd, 
+   hrv_pnn50, hrv_pnn20, hrv_sdsd)
 
-NOTE: PPG features REMOVED because resampling from 64Hz to 1Hz destroys
-cardiac waveform structure. For meaningful HR/HRV extraction, need native
-sampling rate and HeartPy or similar toolkit.
+NOTE: HR/HRV features extracted from raw PPG at 64Hz BEFORE 1Hz alignment
+to preserve cardiac waveform structure. Uses HeartPy for validated extraction.
+Frequency-domain features excluded (unreliable for 120s windows).
 """
 
 import sys
@@ -45,6 +47,15 @@ except ImportError:
     EXTRACTORS_AVAILABLE = False
     STRESS_ACC_FEATURES = []
     print("Warning: Could not import feature extractors from src/features/")
+
+# Import HRV extractor
+try:
+    from features.hrv_extractor import HRV_FEATURE_NAMES
+    HRV_EXTRACTOR_AVAILABLE = True
+except ImportError:
+    HRV_EXTRACTOR_AVAILABLE = False
+    HRV_FEATURE_NAMES = []
+    print("Warning: Could not import HRV extractor from src/features/")
 
 # Module logger
 logger = logging.getLogger(__name__)
@@ -112,8 +123,8 @@ def analyze_missing_data(df: pd.DataFrame, feature_cols: List[str]) -> Dict[str,
                                "roll_angle", "pitch_angle"]],
         "temperature": [c for c in feature_cols if c.startswith("temp_")],
         "heatflux": [c for c in feature_cols if c.startswith("heatflux") or c.startswith("cbt")],
-        "eda": [c for c in feature_cols if c.startswith("eda_")],
-        # PPG removed - 1Hz resampling destroys cardiac waveform structure
+        "hr_hrv": [c for c in feature_cols if c.startswith("hr_") or c.startswith("hrv_") or c == "breathing_rate"],
+        # EDA removed - low sample rate, not valuable for classical ML
     }
     
     for modality, cols in modalities.items():
@@ -335,9 +346,9 @@ class BasicFeatureExtractor:
             features["acc_jerk_energy"] = np.nan
         
         # Activity classification (basic)
-        features["motion_flag"] = 1 if features["acc_magnitude_std"] > 0.5 else 0
-        features["is_stationary"] = 1 if features["acc_magnitude_std"] < 0.3 else 0
-        features["is_high_activity"] = 1 if features["acc_magnitude_std"] > 1.0 else 0
+        # features["motion_flag"] = 1 if features["acc_magnitude_std"] > 0.5 else 0
+        # features["is_stationary"] = 1 if features["acc_magnitude_std"] < 0.3 else 0
+        # features["is_high_activity"] = 1 if features["acc_magnitude_std"] > 1.0 else 0
         
         return features
     
@@ -374,101 +385,64 @@ class BasicFeatureExtractor:
         return features
     
     def extract_heatflux_features(self, window_df: pd.DataFrame) -> Dict[str, float]:
-        """Extract heat flux features from window data."""
+        """Extract enhanced heat flux and core body temperature features."""
         features = {}
         
+        # Heatflux features (enhanced with more stats)
         if "heatflux" in window_df.columns:
             hf = window_df["heatflux"].dropna().values
             if len(hf) > 0:
                 features["heatflux_mean"] = np.mean(hf)
                 features["heatflux_std"] = np.std(hf) if len(hf) > 1 else 0.0
+                features["heatflux_min"] = np.min(hf)
+                features["heatflux_max"] = np.max(hf)
+                features["heatflux_range"] = np.ptp(hf)
+                features["heatflux_change"] = hf[-1] - hf[0] if len(hf) > 1 else 0.0
             else:
-                features["heatflux_mean"] = np.nan
-                features["heatflux_std"] = np.nan
+                for key in ["heatflux_mean", "heatflux_std", "heatflux_min", 
+                           "heatflux_max", "heatflux_range", "heatflux_change"]:
+                    features[key] = np.nan
         else:
-            features["heatflux_mean"] = np.nan
-            features["heatflux_std"] = np.nan
+            for key in ["heatflux_mean", "heatflux_std", "heatflux_min", 
+                       "heatflux_max", "heatflux_range", "heatflux_change"]:
+                features[key] = np.nan
         
+        # Core body temperature features (enhanced)
         if "cbt" in window_df.columns:
             cbt = window_df["cbt"].dropna().values
             if len(cbt) > 0:
                 features["cbt_mean"] = np.mean(cbt)
+                features["cbt_std"] = np.std(cbt) if len(cbt) > 1 else 0.0
                 features["cbt_change"] = cbt[-1] - cbt[0] if len(cbt) > 1 else 0.0
             else:
-                features["cbt_mean"] = np.nan
-                features["cbt_change"] = np.nan
-        else:
-            features["cbt_mean"] = np.nan
-            features["cbt_change"] = np.nan
-        
-        return features
-    
-    def extract_eda_features(self, window_df: pd.DataFrame) -> Dict[str, float]:
-        """Extract EDA features from window data."""
-        features = {}
-        
-        eda_col = None
-        for col in window_df.columns:
-            if "eda" in col.lower() or "stress_skin" in col.lower():
-                eda_col = col
-                break
-        
-        if eda_col is not None:
-            eda = window_df[eda_col].dropna().values
-            if len(eda) > 0:
-                features["eda_mean"] = np.mean(eda)
-                features["eda_median"] = np.median(eda)
-                features["eda_std"] = np.std(eda) if len(eda) > 1 else 0.0
-                features["eda_min"] = np.min(eda)
-                features["eda_max"] = np.max(eda)
-                features["eda_range"] = np.ptp(eda)
-                
-                if len(eda) > 2:
-                    threshold = np.mean(eda) + np.std(eda)
-                    features["eda_num_peaks"] = np.sum(eda > threshold)
-                else:
-                    features["eda_num_peaks"] = 0
-                
-                if len(eda) > 1:
-                    x = np.arange(len(eda))
-                    slope, _, _, _, _ = stats.linregress(x, eda)
-                    features["eda_trend"] = slope
-                else:
-                    features["eda_trend"] = 0.0
-                
-                features["eda_change"] = eda[-1] - eda[0] if len(eda) > 1 else 0.0
-            else:
-                for key in ["eda_mean", "eda_median", "eda_std", "eda_min", "eda_max",
-                           "eda_range", "eda_num_peaks", "eda_trend", "eda_change"]:
+                for key in ["cbt_mean", "cbt_std", "cbt_change"]:
                     features[key] = np.nan
         else:
-            for key in ["eda_mean", "eda_median", "eda_std", "eda_min", "eda_max",
-                       "eda_range", "eda_num_peaks", "eda_trend", "eda_change"]:
+            for key in ["cbt_mean", "cbt_std", "cbt_change"]:
                 features[key] = np.nan
         
         return features
     
-    # NOTE: PPG features removed - resampling PPG to 1Hz destroys cardiac waveform structure
-    # At 1Hz, you lose heartbeat peaks, HRV, and any meaningful PPG morphology.
-    # For PPG-based features, you need native sampling rate (64Hz) and HeartPy for HR/HRV extraction.
+    # EDA features removed - low sample rate (~0.017 Hz) and high missing data
+    # Not valuable for classical ML given these limitations
     
-    def extract_from_window(self, window_df: pd.DataFrame) -> Dict[str, float]:
+    def extract_from_window(self, window_df: pd.DataFrame, 
+                           hr_hrv_features: Optional[Dict[str, float]] = None) -> Dict[str, float]:
         """
         Extract all features for emotional stress detection.
         
-        Features extracted (~61 total):
+        Features extracted (~70 total):
         - Accelerometer (41): stress indicators + activity classification  
         - Temperature (7): skin temp stats
-        - Heat flux (4): heatflux, cbt
-        - EDA (9): electrodermal activity
-        
-        NOTE: PPG features removed - 1Hz resampling destroys cardiac waveform.
+        - Heat flux (9): enhanced heatflux + CBT features
+        - HR/HRV from PPG (13): time-domain + frequency-domain from 64Hz
         
         Args:
             window_df: DataFrame with aligned 1Hz data for the window
+            hr_hrv_features: Pre-computed HR/HRV features from 64Hz PPG (optional)
         
         Returns:
-            Dictionary of ~61 features
+            Dictionary of ~70 features
         """
         features = {}
         
@@ -478,37 +452,46 @@ class BasicFeatureExtractor:
         # Temperature features (7)
         features.update(self.extract_temperature_features(window_df))
         
-        # Heat flux features (4)
+        # Heat flux features (9)
         features.update(self.extract_heatflux_features(window_df))
         
-        # EDA features (9)
-        features.update(self.extract_eda_features(window_df))
-        
-        # PPG features REMOVED - 1Hz resampling destroys cardiac waveform structure
-        # For HR/HRV, need native 64Hz sampling rate and HeartPy extraction
+        # HR/HRV features from raw PPG at 64Hz (13)
+        if hr_hrv_features is not None:
+            features.update(hr_hrv_features)
+        else:
+            # Add NaN placeholders if HR/HRV not available
+            if HRV_EXTRACTOR_AVAILABLE:
+                for key in HRV_FEATURE_NAMES:
+                    features[key] = np.nan
         
         return features
     
     def get_feature_names(self) -> List[str]:
-        """Get list of all feature names (excluding PPG)."""
-        return STRESS_ACC_FEATURES + [
+        """Get list of all feature names."""
+        feature_names = STRESS_ACC_FEATURES + [
             "temp_mean", "temp_std", "temp_min", "temp_max", "temp_range",
             "temp_slope", "temp_change",
-            "heatflux_mean", "heatflux_std", "cbt_mean", "cbt_change",
-            "eda_mean", "eda_median", "eda_std", "eda_min", "eda_max",
-            "eda_range", "eda_num_peaks", "eda_trend", "eda_change",
+            "heatflux_mean", "heatflux_std", "heatflux_min", "heatflux_max", 
+            "heatflux_range", "heatflux_change",
+            "cbt_mean", "cbt_std", "cbt_change",
         ]
+        # Add HR/HRV features if available
+        if HRV_EXTRACTOR_AVAILABLE:
+            feature_names.extend(HRV_FEATURE_NAMES)
+        return feature_names
 
 
-# Feature names for reference (~61 features, NO PPG)
-# PPG removed because 1Hz resampling destroys cardiac waveform structure
+# Feature names for reference (~70 features)
+# Build dynamically to match what extractor produces
 FEATURE_NAMES = STRESS_ACC_FEATURES + [
     "temp_mean", "temp_std", "temp_min", "temp_max", "temp_range",
     "temp_slope", "temp_change",
-    "heatflux_mean", "heatflux_std", "cbt_mean", "cbt_change",
-    "eda_mean", "eda_median", "eda_std", "eda_min", "eda_max",
-    "eda_range", "eda_num_peaks", "eda_trend", "eda_change",
+    "heatflux_mean", "heatflux_std", "heatflux_min", "heatflux_max",
+    "heatflux_range", "heatflux_change",
+    "cbt_mean", "cbt_std", "cbt_change",
 ]
+if HRV_EXTRACTOR_AVAILABLE:
+    FEATURE_NAMES.extend(HRV_FEATURE_NAMES)
 
 
 if __name__ == "__main__":

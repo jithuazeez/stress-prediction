@@ -117,35 +117,65 @@ def log_data_summary(logger: logging.Logger,
 def log_model_results(logger: logging.Logger,
                       model_name: str,
                       metrics: dict):
-    """Log model evaluation results."""
-    logger.info("-" * 50)
-    logger.info(f"RESULTS: {model_name}")
-    logger.info("-" * 50)
+    """
+    Log model evaluation results with emphasis on clinical metrics.
     
-    # Core metrics
+    Highlights:
+    - G-Mean (primary metric for balanced performance)
+    - Sensitivity/Recall (stress detection rate)
+    - Specificity (false alarm control)
+    - Precision (positive predictive value)
+    """
+    logger.info("\n" + "=" * 50)
+    logger.info(f"RESULTS: {model_name.upper()}")
+    logger.info("=" * 50)
+    
+    # Primary clinical metrics
+    logger.info("\nClinical Performance:")
+    gmean = metrics.get("gmean", float("nan"))
+    sensitivity = metrics.get("sensitivity", metrics.get("recall", float("nan")))
+    specificity = metrics.get("specificity", float("nan"))
+    precision = metrics.get("precision", float("nan"))
+    
+    logger.info(f"  G-Mean (Balanced):     {gmean:.4f}")
+    logger.info(f"  Sensitivity (Recall):  {sensitivity:.4f}")
+    logger.info(f"  Specificity:           {specificity:.4f}")
+    logger.info(f"  Precision:             {precision:.4f}")
+    
+    # Standard metrics
+    logger.info("\nStandard Metrics:")
     auroc = metrics.get("auroc", float("nan"))
     pr_auc = metrics.get("pr_auc", float("nan"))
     f1 = metrics.get("f1", float("nan"))
     accuracy = metrics.get("accuracy", float("nan"))
-    precision = metrics.get("precision", float("nan"))
-    recall = metrics.get("recall", float("nan"))
     
-    logger.info(f"  AUROC:      {auroc:.4f}")
-    logger.info(f"  PR-AUC:     {pr_auc:.4f}")
-    logger.info(f"  F1:         {f1:.4f}")
-    logger.info(f"  Accuracy:   {accuracy:.4f}")
-    logger.info(f"  Precision:  {precision:.4f}")
-    logger.info(f"  Recall:     {recall:.4f}")
+    logger.info(f"  AUROC:                 {auroc:.4f}")
+    logger.info(f"  PR-AUC:                {pr_auc:.4f}")
+    logger.info(f"  F1 Score:              {f1:.4f}")
+    logger.info(f"  Accuracy:              {accuracy:.4f}")
     
-    # Confusion matrix if available
+    # Confusion matrix
     tp = metrics.get("true_positive", 0)
+    tn = metrics.get("true_negative", 0)
     fp = metrics.get("false_positive", 0)
     fn = metrics.get("false_negative", 0)
-    tn = metrics.get("true_negative", 0)
     
     if tp + fp + fn + tn > 0:
-        logger.info(f"  Confusion Matrix:")
-        logger.info(f"    TP={tp}, FP={fp}, FN={fn}, TN={tn}")
+        logger.info("\nConfusion Matrix:")
+        logger.info(f"  True Positive (Hit):   {tp}")
+        logger.info(f"  True Negative (CR):    {tn}")
+        logger.info(f"  False Positive (FA):   {fp}")
+        logger.info(f"  False Negative (Miss): {fn}")
+    
+    # Threshold info
+    if "threshold_mean" in metrics:
+        threshold_mean = metrics.get("threshold_mean", 0.5)
+        threshold_std = metrics.get("threshold_std", 0.0)
+        threshold_min = metrics.get("threshold_min", 0.5)
+        threshold_max = metrics.get("threshold_max", 0.5)
+        logger.info(f"\nThreshold Statistics:")
+        logger.info(f"  Mean: {threshold_mean:.4f} ± {threshold_std:.4f}")
+        logger.info(f"  Range: [{threshold_min:.4f}, {threshold_max:.4f}]")
     
     logger.info("-" * 50)
 

@@ -15,21 +15,21 @@ warnings.filterwarnings('ignore')
 
 
 # Feature names returned by this extractor
+# Time-domain features only (frequency-domain excluded due to short 120s windows)
 HRV_FEATURE_NAMES = [
-    'hr_bpm',
-    'hr_std',
-    'hrv_sdnn',
-    'hrv_rmssd',
-    'hrv_pnn50',
-    'hrv_pnn20',
-    'hrv_sdsd',
-    'hrv_lf',
-    'hrv_hf',
-    'hrv_lf_hf_ratio',
-    'hrv_mean_rr',
-    'breathing_rate',
-    'hr_peak_rejection_rate',
+    'hr_bpm',           # Mean heart rate
+    'hr_std',           # Heart rate standard deviation
+    'hrv_mean_rr',      # Mean RR interval
+    'hrv_sdnn',         # Standard deviation of RR intervals
+    'hrv_rmssd',        # Root mean square of successive differences
+    'hrv_pnn50',        # Percentage of successive RR differences > 50ms
+    'hrv_pnn20',        # Percentage of successive RR differences > 20ms
+    'hrv_sdsd',         # Standard deviation of successive differences
 ]
+# Excluded features:
+# - hrv_lf, hrv_hf, hrv_lf_hf_ratio: Frequency-domain (unreliable for 120s windows, need 5+ min)
+# - breathing_rate: Spectral analysis (unreliable for short windows)
+# - hr_peak_rejection_rate: Quality metric, not a physiological feature
 
 
 def preprocess_ppg_segment(
@@ -186,18 +186,18 @@ def extract_hrv_features(
                 features['working_data'] = working_data
             return features
         
-        # Extract features
-        features['hr_bpm'] = measures.get('bpm', np.nan)
-        features['hrv_sdnn'] = measures.get('sdnn', np.nan)
-        features['hrv_rmssd'] = measures.get('rmssd', np.nan)
-        features['hrv_pnn50'] = measures.get('pnn50', np.nan)
-        features['hrv_pnn20'] = measures.get('pnn20', np.nan)
-        features['hrv_sdsd'] = measures.get('sdsd', np.nan)
-        features['hrv_lf'] = measures.get('lf', np.nan)
-        features['hrv_hf'] = measures.get('hf', np.nan)
-        features['hrv_lf_hf_ratio'] = measures.get('lf/hf', np.nan)
-        features['breathing_rate'] = measures.get('breathingrate', np.nan)
-        features['hr_peak_rejection_rate'] = rejection_rate
+        # Extract features (convert to float explicitly)
+        features['hr_bpm'] = float(measures.get('bpm', np.nan))
+        features['hrv_sdnn'] = float(measures.get('sdnn', np.nan))
+        features['hrv_rmssd'] = float(measures.get('rmssd', np.nan))
+        features['hrv_pnn50'] = float(measures.get('pnn50', np.nan))
+        features['hrv_pnn20'] = float(measures.get('pnn20', np.nan))
+        features['hrv_sdsd'] = float(measures.get('sdsd', np.nan))
+        features['hrv_lf'] = float(measures.get('lf', np.nan))
+        features['hrv_hf'] = float(measures.get('hf', np.nan))
+        features['hrv_lf_hf_ratio'] = float(measures.get('lf/hf', np.nan))
+        features['breathing_rate'] = float(measures.get('breathingrate', np.nan))
+        features['hr_peak_rejection_rate'] = float(rejection_rate)
         
         # Calculate additional features from RR intervals
         rr_list = working_data.get('RR_list_cor', working_data.get('RR_list', []))
