@@ -392,10 +392,10 @@ def get_hyperparameter_grid(model_name: str) -> Dict:
     elif model_name == "random_forest":
         return {
             'n_estimators': [50, 100, 200],               # Number of trees
-            'max_depth': [5, 10, 15, 20, None],           # Tree depth
+            'max_depth': [5, 10, 15,],           # Tree depth
             'min_samples_split': [2, 5, 10],              # Min samples to split node
             'min_samples_leaf': [1, 2, 4],                # Min samples at leaf
-            'max_features': ['sqrt', 'log2', None],       # Features per split
+            'max_features': ['sqrt', 'log2'],       # Features per split
             'bootstrap': [True],                          # Always use bootstrap
         }
     
@@ -403,7 +403,7 @@ def get_hyperparameter_grid(model_name: str) -> Dict:
         return {
             'C': [0.1, 1.0, 10.0, 100.0],                 # Regularization
             'kernel': ['rbf', 'poly', 'sigmoid'],         # Kernel types
-            'gamma': ['scale', 'auto', 0.001, 0.01, 0.1], # Kernel coefficient
+            'gamma': ['scale', 0.001, 0.01, 0.1], # Kernel coefficient
             'degree': [2, 3, 4],                          # For poly kernel only
             'probability': [True]                         # Always need probabilities
         }
@@ -412,11 +412,9 @@ def get_hyperparameter_grid(model_name: str) -> Dict:
         return {
             'n_estimators': [50, 100, 200],               # Number of boosting rounds
             'max_depth': [3, 5, 7, 9],                    # Tree depth
-            'learning_rate': [0.01, 0.05, 0.1, 0.3],      # Step size shrinkage
-            'subsample': [0.7, 0.8, 1.0],                 # Sample ratio of training
-            'colsample_bytree': [0.7, 0.8, 1.0],          # Feature sampling
+            'learning_rate': [0.01, 0.05, 0.1],      # Step size shrinkage          # Feature sampling
             'min_child_weight': [1, 3, 5],                # Min sum of weights in child
-            'gamma': [0, 0.1, 0.2],                       # Min loss reduction for split
+            'gamma': [0.1, 0.2],                       # Min loss reduction for split
         }
     
     else:

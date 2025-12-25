@@ -466,6 +466,8 @@ def loso_cross_validation(windows_by_subject: Dict[str, List[Dict]],
                 param_info = model.get_trainable_params_info()
                 logger.info(f"Model: {param_info['total_params']:,} params | Trainable: {param_info['trainable_params']:,} ({param_info['trainable_pct']:.1f}%)")
 
+
+
         # Class weights
         n_pos = sum(1 for w in train_windows if w.get(config.target_label, 0) == 1)
         n_neg = len(train_windows) - n_pos
@@ -494,18 +496,32 @@ def loso_cross_validation(windows_by_subject: Dict[str, List[Dict]],
         else:
             optimizer = optim.Adam(model.parameters(), lr=learning_rate)
         
-        # Training loop
+        # Training loop with early stopping
         best_train_loss = float('inf')
+        patience = 15  # Stop if no improvement for 15 epochs
+        patience_counter = 0
         epoch_log_interval = 15  # Log every N epochs
         
         for epoch in range(n_epochs):
             train_loss = train_epoch(model, train_loader, criterion, optimizer, 
                                     device, epoch, n_epochs)
-            best_train_loss = min(best_train_loss, train_loss)
+            
+            # Early stopping check
+            if train_loss < best_train_loss:
+                best_train_loss = train_loss
+                patience_counter = 0  # Reset counter on improvement
+            else:
+                patience_counter += 1
             
             # Log progress every N epochs
             if (epoch + 1) % epoch_log_interval == 0 or epoch == 0 or epoch == n_epochs - 1:
-                logger.info(f"  Fold {fold_idx+1} Epoch {epoch+1:3d}/{n_epochs} | Loss: {train_loss:.4f} | Best: {best_train_loss:.4f}")
+                logger.info(f"  Fold {fold_idx+1} Epoch {epoch+1:3d}/{n_epochs} | Loss: {train_loss:.4f} | Best: {best_train_loss:.4f} | Patience: {patience_counter}/{patience}")
+            
+            # Early stopping
+            if patience_counter >= patience:
+                logger.info(f"  ⚠️  Early stopping at epoch {epoch+1}/{n_epochs} (no improvement for {patience} epochs)")
+                logger.info(f"     Best loss: {best_train_loss:.4f}")
+                break
         
         # Get predictions on TRAINING data to find optimal threshold
         train_y_true, train_y_proba = evaluate_epoch(model, train_loader, device)
@@ -539,6 +555,8 @@ def loso_cross_validation(windows_by_subject: Dict[str, List[Dict]],
         )
         fold_metric["subject"] = test_subject
         fold_metric["train_loss"] = best_train_loss
+        fold_metric["epochs_trained"] = epoch + 1  # Actual epochs trained (may be less if early stopped)
+        fold_metric["early_stopped"] = (patience_counter >= patience)  # Flag if early stopping triggered
         fold_metric["train_sensitivity"] = train_thresh_metrics.get("sensitivity", float("nan"))
         fold_metric["train_specificity"] = train_thresh_metrics.get("specificity", float("nan"))
         fold_metric["train_gmean"] = train_thresh_metrics.get("gmean", float("nan"))
@@ -606,6 +624,17 @@ def loso_cross_validation(windows_by_subject: Dict[str, List[Dict]],
     logger.info(f"{'='*60}")
     logger.info(f"Total time: {elapsed/60:.1f} minutes ({elapsed/n_subjects:.1f}s per fold)")
     logger.info(f"Folds completed: {len(fold_metrics)}/{n_subjects}")
+    
+    # Report early stopping statistics
+    early_stopped_folds = sum(1 for f in fold_metrics if f.get("early_stopped", False))
+    if early_stopped_folds > 0:
+        avg_epochs_trained = np.mean([f.get("epochs_trained", n_epochs) for f in fold_metrics])
+        logger.info(f"\nEarly Stopping Summary:")
+        logger.info(f"  Folds stopped early: {early_stopped_folds}/{len(fold_metrics)} ({100*early_stopped_folds/len(fold_metrics):.1f}%)")
+        logger.info(f"  Average epochs trained: {avg_epochs_trained:.1f}/{n_epochs}")
+        logger.info(f"  Time saved: ~{(n_epochs - avg_epochs_trained) * elapsed / (avg_epochs_trained * n_subjects):.1f} minutes")
+    else:
+        logger.info(f"\nEarly Stopping: No folds stopped early (all trained {n_epochs} epochs)")
     
     # Convert to arrays
     all_y_true = np.array(all_y_true)
@@ -751,8 +780,8 @@ def main():
         config,
         device,
         logger,
-        n_epochs=100,
-        batch_size=16,
+        n_epochs=50,
+        batch_size=32,
         learning_rate=1e-3,
         threshold_method=THRESHOLD_METHOD,
         min_recall=MIN_RECALL,
