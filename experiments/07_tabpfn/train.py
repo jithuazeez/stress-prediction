@@ -45,8 +45,8 @@ from shared.logging_utils import (
     setup_logger, log_experiment_start, log_experiment_end,
     log_data_summary, log_model_results
 )
-from feature_extractor import (
-    MasterFeatureExtractor, FEATURE_NAMES,
+from feature_extraction import (
+    BasicFeatureExtractor, FEATURE_NAMES,
     analyze_missing_data, calculate_class_ratio)
 # from hrv_extractor import extract_hrv_from_window, HRV_FEATURE_NAMES
 # Import feature extraction from classical ML experiment
