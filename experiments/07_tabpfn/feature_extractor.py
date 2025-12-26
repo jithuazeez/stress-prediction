@@ -18,7 +18,7 @@ import warnings
 warnings.filterwarnings('ignore')
 
 # Import HRV extractor (HeartPy-based)
-from .hrv_extractor import HRVExtractor, HRV_FEATURE_NAMES
+from hrv_extractor import HRVExtractor, HRV_FEATURE_NAMES
 
 
 # All feature names for the 39 features
