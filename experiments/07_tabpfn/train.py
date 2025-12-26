@@ -11,6 +11,13 @@ TabPFN advantages:
 - Handles missing values automatically
 - Works well on small datasets
 
+**Authentication:**
+TabPFN may require a HuggingFace token for model access.
+Set the HF_TOKEN environment variable:
+    export HF_TOKEN=<your_huggingface_read_token>
+
+Or obtain a token from: https://huggingface.co/settings/tokens
+
 Reference: https://github.com/PriorLabs/TabPFN
 Paper: https://arxiv.org/abs/2207.01848
 """
@@ -52,7 +59,8 @@ from feature_extraction import (
 # Import feature extraction from classical ML experiment
 sys.path.insert(0, str(Path(__file__).parent.parent / "01_classical_ml"))
 
-
+import os
+HF_TOKEN = os.environ.get("HF_TOKEN", None)
 
 # Import HRV extractor
 try:
@@ -66,11 +74,18 @@ except ImportError:
 # Import TabPFN
 try:
     from tabpfn import TabPFNClassifier
-    HEARTPY_AVAILABLE = True
     TABPFN_AVAILABLE = True
 except ImportError:
     TABPFN_AVAILABLE = False
     logging.error("TabPFN not available! Install with: pip install tabpfn")
+
+# Check for HuggingFace token (for TabPFN access)
+import os
+HF_TOKEN = os.environ.get("HF_TOKEN", None)
+if HF_TOKEN:
+    logging.info("HuggingFace token found in environment (HF_TOKEN)")
+else:
+    logging.info("No HF_TOKEN found. If TabPFN requires authentication, set: export HF_TOKEN=<your_token>")
 
 
 def process_subject(subject_folder: Path, 
@@ -460,11 +475,17 @@ def loso_cross_validation_tabpfn(X: np.ndarray,
         
         # ========== STEP 2: TRAIN TabPFN ==========
         try:
-            # Initialize TabPFN (no hyperparameters needed!)
-            model = TabPFNClassifier(
-                device=device,
-                n_estimators=8  # Ensemble size (default: 8)
-            )
+            # Initialize TabPFN with optional HF token
+            model_kwargs = {
+                "device": device,
+                "n_estimators": 8  # Ensemble size (default: 8)
+            }
+            
+            # Add HF token if available
+            if HF_TOKEN:
+                model_kwargs["token"] = HF_TOKEN
+            
+            model = TabPFNClassifier(**model_kwargs)
             
             # Train (fit)
             model.fit(X_train, y_train)
@@ -642,13 +663,28 @@ def main():
     
     log_experiment_start(logger, "TabPFN FOUNDATION MODEL TRAINING")
     
+    # Check HF Token
+    if HF_TOKEN:
+        logger.info("✓ HuggingFace token found (HF_TOKEN environment variable)")
+    else:
+        logger.warning("⚠️  No HF_TOKEN found in environment")
+        logger.warning("   If TabPFN requires authentication, set:")
+        logger.warning("   export HF_TOKEN=<your_huggingface_read_token>")
+        logger.warning("   Get token from: https://huggingface.co/settings/tokens")
+    
     # Check HuggingFace authentication and model access
     logger.info("Checking TabPFN requirements...")
     try:
         # Test if model can be loaded (will auto-download on first use)
         import torch
         device = "cuda" if torch.cuda.is_available() else "cpu"
-        test_model = TabPFNClassifier(device=device)
+        
+        # Initialize test model with HF token if available
+        model_kwargs = {"device": device}
+        if HF_TOKEN:
+            model_kwargs["token"] = HF_TOKEN
+        
+        test_model = TabPFNClassifier(**model_kwargs)
         logger.info("✓ TabPFN model accessible")
         logger.info(f"✓ Using device: {device}")
         if device == "cpu":
@@ -876,14 +912,34 @@ def main():
     logger.info("\n" + "="*70)
     logger.info("TabPFN TRAINING COMPLETE")
     logger.info("="*70)
-    logger.info(f"  AUROC:       {result['metrics'].get('auroc', float('nan')):.4f}")
-    logger.info(f"  PR-AUC:      {result['metrics'].get('pr_auc', float('nan')):.4f}")
-    logger.info(f"  F1:          {result['metrics'].get('f1', float('nan')):.4f}")
-    logger.info(f"  Accuracy:    {result['metrics'].get('accuracy', float('nan')):.4f}")
-    logger.info(f"  Precision:   {result['metrics'].get('precision', float('nan')):.4f}")
-    logger.info(f"  Recall:      {result['metrics'].get('recall', float('nan')):.4f}")
-    logger.info(f"  Specificity: {result['metrics'].get('specificity', float('nan')):.4f}")
-    logger.info(f"  Gmean:       {result['metrics'].get('gmean', float('nan')):.4f}")
+    
+    # Clinical metrics (primary)
+    logger.info("\nClinical Performance:")
+    logger.info(f"  G-Mean (Balanced):     {result['metrics'].get('gmean', float('nan')):.4f}")
+    logger.info(f"  Sensitivity (Recall):  {result['metrics'].get('recall', float('nan')):.4f}")
+    logger.info(f"  Specificity:           {result['metrics'].get('specificity', float('nan')):.4f}")
+    logger.info(f"  Precision:             {result['metrics'].get('precision', float('nan')):.4f}")
+    
+    # Standard metrics
+    logger.info("\nStandard Metrics:")
+    logger.info(f"  AUROC:                 {result['metrics'].get('auroc', float('nan')):.4f}")
+    logger.info(f"  PR-AUC:                {result['metrics'].get('pr_auc', float('nan')):.4f}")
+    logger.info(f"  F1 Score:              {result['metrics'].get('f1', float('nan')):.4f}")
+    logger.info(f"  Accuracy:              {result['metrics'].get('accuracy', float('nan')):.4f}")
+    
+    # Confusion Matrix
+    tp = result['metrics'].get('true_positive', 0)
+    tn = result['metrics'].get('true_negative', 0)
+    fp = result['metrics'].get('false_positive', 0)
+    fn = result['metrics'].get('false_negative', 0)
+    if tp + tn + fp + fn > 0:
+        logger.info("\nConfusion Matrix:")
+        logger.info(f"  True Positive (Hit):   {tp}")
+        logger.info(f"  True Negative (CR):    {tn}")
+        logger.info(f"  False Positive (FA):   {fp}")
+        logger.info(f"  False Negative (Miss): {fn}")
+    
+    logger.info("="*70)
     
     # Create comparison with classical ML if available
     classical_ml_results_dir = Path(__file__).parent.parent / "01_classical_ml" / "results"

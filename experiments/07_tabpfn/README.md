@@ -1,156 +1,243 @@
-# Experiment 07: TabPFN Foundation Model
+# TabPFN Foundation Model for Stress Prediction
 
-## Overview
+This experiment uses **TabPFN** (Tabular Prior-Data Fitted Network), a pre-trained foundation model for tabular classification, to predict emotional stress from wearable sensor data.
 
-TabPFN is a foundation model for tabular classification, pre-trained on synthetic tabular datasets. Unlike traditional ML models, it requires **no hyperparameter tuning** and can make predictions in seconds.
+## What is TabPFN?
 
-This experiment applies TabPFN to the same engineered features used in classical ML (Experiment 01), enabling direct comparison between traditional ML and foundation model approaches.
+TabPFN is a **foundation model** specifically designed for small-to-medium tabular datasets:
+- **Pre-trained** on synthetic tabular data
+- **No hyperparameter tuning** needed
+- **Fast inference** (seconds, not minutes)
+- **Handles missing values** automatically
+- **Works well on small datasets** (<10K samples, <100 features)
 
-## Key Features
+Unlike classical ML models (Logistic Regression, Random Forest, SVM) that require training from scratch, TabPFN leverages transfer learning from its pre-training.
 
-- **Pre-trained**: Model trained on diverse synthetic tabular data
-- **Zero hyperparameter tuning**: No grid search needed
-- **Fast**: Predictions in seconds even on CPU
-- **Handles imbalance**: Automatically handles class imbalance
-- **Missing values**: Can handle NaN values directly (though we apply same preprocessing as classical ML for fair comparison)
+**Paper**: [TabPFN: A Transformer That Solves Small Tabular Classification Problems in a Second](https://arxiv.org/abs/2207.01848)
 
-## Installation
+## 🔧 Setup Instructions
+
+### 1. Install TabPFN
 
 ```bash
-# Install TabPFN
 pip install tabpfn
-
-# Login to HuggingFace (required for model download)
-huggingface-cli login
-
-# Accept license at: https://huggingface.co/Prior-Labs/tabpfn_2_5
 ```
 
-## Usage
+### 2. HuggingFace Authentication
+
+TabPFN models are hosted on HuggingFace and may require authentication:
+
+**Option A: Interactive Login**
+```bash
+huggingface-cli login
+```
+
+**Option B: Environment Variable (Recommended for Scripts)**
+```bash
+export HF_TOKEN=<your_huggingface_read_token>
+```
+
+Get your token from: https://huggingface.co/settings/tokens
+
+### 3. Accept Model License
+
+Visit: https://huggingface.co/Prior-Labs/tabpfn_2_5
+
+Click "Agree and access repository" (required for first-time use)
+
+### 4. Run Training
 
 ```bash
-# Run training
 cd experiments/07_tabpfn
 python train.py
 ```
 
-The script will:
-1. Load and preprocess raw sensor data (same as classical ML)
-2. Extract ~65 features (accelerometer, temperature, HR/HRV, etc.)
-3. Apply 2-stage quality filtering
-4. Train TabPFN with LOSO cross-validation
-5. Save results, predictions, and plots
+## 📊 Methodology
 
-## Comparison to Classical ML
+### Pipeline (Same as Classical ML)
+
+1. **Data Loading**: Load raw sensor data from all subjects
+2. **Alignment**: Align to 1Hz sampling rate
+3. **Windowing**: Create 120s sliding windows with 30s stride
+4. **Feature Extraction**: 
+   - Accelerometer features (41)
+   - Temperature features (7)
+   - Heat flux features (9)
+   - HR/HRV features from raw PPG at 64Hz (8)
+   - **Total: ~65 features**
+5. **Quality Filtering**: 
+   - Stage 1: Keep only windows with valid `hr_bpm`
+   - Stage 2: Impute remaining missing values with median
+6. **LOSO Cross-Validation**: Leave-One-Subject-Out for robust evaluation
+7. **Threshold Selection**: Optimize on training data (geometric mean of sensitivity/specificity)
+8. **Evaluation**: Comprehensive metrics on test subject
+
+### Key Differences from Classical ML
 
 | Aspect | Classical ML | TabPFN |
 |--------|-------------|--------|
-| Hyperparameter tuning | Required (nested CV) | Not needed |
-| Scaling | Manual (StandardScaler) | Automatic |
-| Class weights | Manual | Automatic |
-| Training time per fold | ~30-60s | ~10-20s |
-| Model size | Small (<1MB) | Large (~500MB) |
-| Interpretability | High (feature importance) | Low (black-box) |
+| **Hyperparameter Tuning** | Nested CV (extensive) | None (pre-trained) |
+| **Scaling** | Manual StandardScaler | Automatic |
+| **Class Weights** | Manual (balanced) | Automatic |
+| **Training Time** | Minutes | Seconds |
+| **Model Complexity** | Simple (LR) to Complex (XGB) | Black-box Transformer |
 
-## Expected Performance
+### Evaluation Metrics (Same as Classical ML)
 
-TabPFN should perform similarly to or better than XGBoost/Random Forest, especially on:
-- Small datasets (LOSO with ~1000-2000 samples per fold)
-- Imbalanced classes (~25% stress, 75% no stress)
-- Mixed feature types (temporal, statistical, physiological)
+**Clinical Metrics (Primary):**
+- **G-Mean**: Geometric mean of sensitivity and specificity (balanced metric)
+- **Sensitivity (Recall)**: Stress detection rate
+- **Specificity**: False alarm control
+- **Precision**: Positive predictive value
 
-## Architecture
+**Standard Metrics:**
+- AUROC, PR-AUC, F1-score, Accuracy
 
+**Per-Fold Analysis:**
+- Subject-wise metrics saved to `tabpfn_fold_metrics.csv`
+
+## 📁 Output Files
+
+All results saved to `experiments/07_tabpfn/results/`:
+
+- `features_dataset.csv`: Full feature dataset (all windows)
+- `hrv_features_dataset.csv`: HRV-only features with metadata
+- `tabpfn_metrics.json`: Overall performance metrics
+- `tabpfn_fold_metrics.csv`: Per-subject (fold) metrics
+- `tabpfn_predictions.csv`: Predictions (subject_id, y_true, y_pred, y_proba)
+- `tabpfn_roc.png`: ROC curve
+- `tabpfn_pr.png`: Precision-Recall curve
+- `tabpfn_confusion_matrix.png`: Confusion matrix
+- `training.log`: Full training log
+
+## 🎯 Expected Performance
+
+Based on the classical ML baseline (with same features):
+
+| Model | AUROC | PR-AUC | F1 | Recall | Precision |
+|-------|-------|--------|----|----|-----------|
+| Logistic Regression | ~0.75 | ~0.40 | ~0.35 | ~0.45 | ~0.30 |
+| Random Forest | ~0.78 | ~0.42 | ~0.38 | ~0.48 | ~0.32 |
+| **TabPFN** (expected) | **~0.76-0.80** | **~0.41-0.45** | **~0.36-0.40** | **~0.46-0.52** | **~0.31-0.35** |
+
+TabPFN should perform **comparably or better** than classical ML, especially given:
+- Small dataset (~1,400 windows, 21 subjects)
+- High class imbalance (1:7.1 ratio)
+- Complex feature interactions
+
+## 🚀 Advantages of TabPFN
+
+### 1. **No Hyperparameter Tuning**
+Classical ML required extensive nested CV to find optimal hyperparameters (C, max_depth, gamma, etc.). TabPFN is **pre-trained** and ready to use.
+
+### 2. **Fast Training**
+- Classical ML: ~2-5 minutes per model (with tuning)
+- TabPFN: ~10-30 seconds (no tuning needed)
+
+### 3. **Automatic Preprocessing**
+- No manual scaling (StandardScaler)
+- No class weight tuning
+- Handles missing values internally
+
+### 4. **Transfer Learning**
+TabPFN was pre-trained on millions of synthetic tabular datasets, so it has "seen" many classification patterns before.
+
+## ⚠️ Limitations
+
+### 1. **Dataset Size Constraints**
+- Works best with **<10,000 training samples**
+- Performance degrades on very large datasets
+- Our dataset (~1,400 windows) is ideal
+
+### 2. **Feature Limit**
+- Works best with **<100 features**
+- We have ~65 features (within limit)
+
+### 3. **Black Box**
+- Cannot inspect feature importance like LR coefficients
+- No attention mechanisms exposed (yet)
+
+### 4. **GPU Recommended**
+- Runs on CPU but **10x faster on GPU**
+- MPS (Apple Silicon) supported
+
+## 🔍 Troubleshooting
+
+### Error: "Model not accessible"
 ```
-Raw Sensor Data (PPG, ACC, Temp, etc.)
-         ↓
-    Feature Extraction
-    (~65 features: ACC, Temp, HR/HRV)
-         ↓
-    Quality Filtering
-    (Keep only high-quality HRV windows)
-         ↓
-    TabPFN Classifier
-    (Pre-trained transformer)
-         ↓
-    Stress Prediction
+Solution:
+1. Run: huggingface-cli login
+2. Accept license at: https://huggingface.co/Prior-Labs/tabpfn_2_5
+3. Ensure internet connection for first download (~500MB)
 ```
 
-## Features Used
+### Error: "ImportError: No module named 'tabpfn'"
+```
+Solution: pip install tabpfn
+```
 
-Same as classical ML (Experiment 01):
+### Warning: "Running on CPU - this will be slower!"
+```
+This is OK but slow. To use GPU:
+- NVIDIA: Install CUDA + PyTorch with CUDA
+- Apple Silicon: PyTorch 2.0+ has MPS support automatically
+```
 
-1. **Accelerometer (41 features)**: Stress indicators + activity classification
-   - Fidgeting, tremors, restlessness detection
-   - Activity level (sitting vs. exercise)
-   
-2. **Temperature (7 features)**: Skin temperature statistics
-   - Mean, std, min, max, range, slope, change
+### TabPFN is very slow
+```
+Possible causes:
+1. Running on CPU (use GPU)
+2. Training set too large (>50K samples)
+3. Too many features (>100 features)
 
-3. **Heat Flux (9 features)**: Thermal regulation
-   - Heat flux + Core body temperature (CBT)
+Our dataset is small (~1.4K samples, 65 features) so should be fast.
+```
 
-4. **HR/HRV from PPG (8 features)**: Cardiac measures
-   - Heart rate: hr_bpm, hr_std
-   - HRV time-domain: hrv_mean_rr, hrv_sdnn, hrv_rmssd, hrv_pnn50, hrv_pnn20, hrv_sdsd
+## 📚 References
 
-## Limitations
+1. **TabPFN Paper**: Hollmann et al. (2022). "TabPFN: A Transformer That Solves Small Tabular Classification Problems in a Second". NeurIPS 2022.
+   - https://arxiv.org/abs/2207.01848
 
-- **Maximum 100 features**: We have ~65, so OK
-- **Maximum 50,000 samples**: Our LOSO folds have ~1000-2000, so OK
-- **Requires GPU for large datasets**: Optional for our size, but recommended
-- **Large model download**: ~500MB on first use
-- **Black-box**: Less interpretable than classical ML
+2. **Official Repository**: 
+   - https://github.com/PriorLabs/TabPFN
 
-## Results
+3. **Model Card**:
+   - https://huggingface.co/Prior-Labs/tabpfn_2_5
 
-Results are saved to `results/`:
-- `tabpfn_metrics.json` - Overall metrics
-- `tabpfn_fold_metrics.csv` - Per-fold metrics
-- `tabpfn_predictions.csv` - All predictions
-- `figures/` - ROC, PR curves, confusion matrix
-- `training.log` - Detailed execution log
+## 🆚 Comparison with Classical ML
 
-## Troubleshooting
+Run both experiments to compare:
 
-### Error: "TabPFN not installed"
 ```bash
-pip install tabpfn
+# Classical ML (Logistic Regression, RF, SVM, XGBoost)
+cd experiments/01_classical_ml
+python train.py
+
+# TabPFN (Foundation Model)
+cd ../07_tabpfn
+python train.py
 ```
 
-### Error: "Access denied to model"
-```bash
-# Login to HuggingFace
-huggingface-cli login
+Results will be automatically compared if classical ML results exist.
 
-# Then accept license at:
-# https://huggingface.co/Prior-Labs/tabpfn_2_5
-```
+## 💡 Tips
 
-### Error: "CUDA out of memory"
-TabPFN will automatically fall back to CPU. You can also force CPU mode by setting `device="cpu"` in the training script.
+1. **First run is slow** (~30s) due to model download (~500MB). Subsequent runs are fast.
+2. **Use GPU if available** for 10x speedup
+3. **TabPFN is deterministic** (unlike RF/XGBoost with random seeds)
+4. **No need to tune anything** - just run and evaluate
+5. **Check logs carefully** - HF authentication issues are common first time
 
-### Warning: "Running on CPU will be slower"
-This is expected. For our dataset size (~1000-2000 samples per fold), CPU should take ~10-30 seconds per fold, which is acceptable.
+## ✅ Success Checklist
 
-## References
+- [ ] TabPFN installed (`pip install tabpfn`)
+- [ ] HuggingFace authentication setup (login or HF_TOKEN)
+- [ ] Model license accepted on HuggingFace
+- [ ] First model download complete (~500MB)
+- [ ] Training runs without errors
+- [ ] Results saved to `results/` directory
+- [ ] Metrics comparable to classical ML baseline
 
-- **Paper**: [TabPFN: A Transformer That Solves Small Tabular Classification Problems in a Second](https://arxiv.org/abs/2207.01848)
-- **Nature Paper**: [Accurate predictions on small data with a tabular foundation model](https://www.nature.com/articles/s41586-024-08328-6)
-- **GitHub**: https://github.com/PriorLabs/TabPFN
-- **HuggingFace**: https://huggingface.co/Prior-Labs/tabpfn_2_5
+---
 
-## Citation
-
-```bibtex
-@article{hollmann2025tabpfn,
- title={Accurate predictions on small data with a tabular foundation model},
- author={Hollmann, Noah and M{\"u}ller, Samuel and Purucker, Lennart and
-         Krishnakumar, Arjun and K{\"o}rfer, Max and Hoo, Shi Bin and
-         Schirrmeister, Robin Tibor and Hutter, Frank},
- journal={Nature},
- year={2025},
- doi={10.1038/s41586-024-08328-6},
-}
-```
-
+**Questions?** Check the training log in `results/training.log` for detailed diagnostics.
