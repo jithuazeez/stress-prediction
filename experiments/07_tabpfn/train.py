@@ -55,13 +55,13 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "01_classical_ml"))
 
 
 # Import HRV extractor
-# try:
-#     from hrv_extractor import extract_hrv_from_window, HRV_FEATURE_NAMES
-#     HEARTPY_AVAILABLE = True
-# except ImportError:
-#     HEARTPY_AVAILABLE = False
-#     HRV_FEATURE_NAMES = []
-#     logging.warning("HeartPy/HRV extractor not available - will skip PPG features")
+try:
+    from hrv_extractor import extract_hrv_from_window, HRV_FEATURE_NAMES
+    HEARTPY_AVAILABLE = True
+except ImportError:
+    HEARTPY_AVAILABLE = False
+    HRV_FEATURE_NAMES = []
+    logging.warning("HeartPy/HRV extractor not available - will skip PPG features")
 
 # Import TabPFN
 try:
