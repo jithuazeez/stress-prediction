@@ -340,30 +340,30 @@ def align_to_1hz(signals: Dict[str, Optional[pd.DataFrame]],
     
     # --- Align HR from HeartPy (already at 1Hz) ---
     # This is much better than downsampling raw PPG from 64Hz to 1Hz!
-    # subject_id = signals.get("subject_id")
-    # if subject_id:
-    #     hr_df = get_hr_for_subject(subject_id)
-    #     if hr_df is not None and len(hr_df) > 0:
-    #         # Merge HR data with time grid
-    #         hr_values = np.full(len(time_grid), np.nan)
-    #         rmssd_values = np.full(len(time_grid), np.nan)
+    subject_id = signals.get("subject_id")
+    if subject_id:
+        hr_df = get_hr_for_subject(subject_id)
+        if hr_df is not None and len(hr_df) > 0:
+            # Merge HR data with time grid
+            hr_values = np.full(len(time_grid), np.nan)
+            rmssd_values = np.full(len(time_grid), np.nan)
             
-    #         # Convert timestamps for matching
-    #         hr_df_ts = hr_df["timestamp"].values.astype('datetime64[ns]')
-    #         grid_ts = time_grid.values.astype('datetime64[ns]')
+            # Convert timestamps for matching
+            hr_df_ts = hr_df["timestamp"].values.astype('datetime64[ns]')
+            grid_ts = time_grid.values.astype('datetime64[ns]')
             
-    #         for i, t in enumerate(grid_ts):
-    #             # Find matching timestamp (within 1 second)
-    #             time_diff = np.abs((hr_df_ts - t).astype('timedelta64[s]').astype(float))
-    #             if len(time_diff) > 0:
-    #                 min_diff_idx = np.argmin(time_diff)
-    #                 if time_diff[min_diff_idx] <= 1.0:
-    #                     hr_values[i] = hr_df["hr_bpm"].iloc[min_diff_idx]
-    #                     if "rmssd" in hr_df.columns:
-    #                         rmssd_values[i] = hr_df["rmssd"].iloc[min_diff_idx]
+            for i, t in enumerate(grid_ts):
+                # Find matching timestamp (within 1 second)
+                time_diff = np.abs((hr_df_ts - t).astype('timedelta64[s]').astype(float))
+                if len(time_diff) > 0:
+                    min_diff_idx = np.argmin(time_diff)
+                    if time_diff[min_diff_idx] <= 1.0:
+                        hr_values[i] = hr_df["hr_bpm"].iloc[min_diff_idx]
+                        if "rmssd" in hr_df.columns:
+                            rmssd_values[i] = hr_df["rmssd"].iloc[min_diff_idx]
             
-    #         aligned["hr_bpm"] = hr_values
-    #         aligned["rmssd"] = rmssd_values
+            aligned["hr_bpm"] = hr_values
+            aligned["rmssd"] = rmssd_values
     
     # --- DISABLED: Raw PPG downsampling (destroys cardiac waveform) ---
     # ppg_df = signals.get("ppg")

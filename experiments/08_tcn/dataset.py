@@ -1,16 +1,21 @@
 """
-PyTorch Dataset for TCN model with on-the-fly feature extraction.
+PyTorch Dataset for TCN model with raw multivariate time series.
 
-Unlike MOMENT which uses raw time series, TCN uses extracted features
-similar to classical ML approach (excluding HR/HRV which are pre-computed).
+UPDATED: Now matches MOMENT's approach - uses raw sensor channels instead of extracted features.
+This allows TCN to learn temporal patterns directly from the raw sequences.
 
-Features extracted per window (~65 total, excluding HR/HRV):
-- Accelerometer (41): stress indicators + activity classification
-- Temperature (7): skin_temp stats, slope, change
-- Heat Flux (9): heatflux + CBT enhanced features
+Uses same 8 channels as MOMENT:
+- acc_x, acc_y, acc_z: Accelerometer axes (capturing movement patterns)
+- skin_temp: Skin temperature
+- heatflux: Heat flux (thermal energy transfer)
+- cbt: Core body temperature
+- hr_bpm: Heart rate from PPG (at 1Hz)
+- rmssd: HRV metric (rolling RMSSD at 1Hz)
 
-Note: HR/HRV features are excluded to match MOMENT's feature set.
-These are pre-computed from 64Hz PPG before windowing.
+Architecture:
+- Input: (batch, 8 channels, 120 timesteps)
+- Each sensor is a channel (not extracted features)
+- Subject-wise normalization for physiological consistency
 """
 
 import sys
@@ -24,121 +29,154 @@ import logging
 
 # Add parent directories to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
-sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
-
 from shared.config import Config
-
-# Import feature extractor from classical ML experiment
-sys.path.insert(0, str(Path(__file__).parent.parent / "01_classical_ml"))
-from feature_extraction import BasicFeatureExtractor
 
 logger = logging.getLogger(__name__)
 
 
 class VitaStressTCNDataset(Dataset):
     """
-    Dataset for TCN model with on-the-fly feature extraction.
+    Dataset for TCN model with raw multivariate time series.
     
-    Converts aligned 1Hz windows to feature vectors using the same
-    feature extraction pipeline as classical ML (excluding HR/HRV).
+    Uses same channels as MOMENT (8 channels × 120 timesteps):
+    - acc_x, acc_y, acc_z: Accelerometer (3D movement)
+    - skin_temp: Skin temperature
+    - heatflux: Heat flux
+    - cbt: Core body temperature  
+    - hr_bpm: Heart rate (from PPG)
+    - rmssd: HRV metric (rolling RMSSD)
     
-    Features (~65 total, excluding HR/HRV):
-    - Accelerometer (41): stress + activity features
-    - Temperature (7): skin_temp statistics
-    - Heat Flux (9): heatflux + CBT features
-    
-    Output shape per window: [n_features, seq_len=1]
-    TCN expects input: [batch, n_features, seq_len]
+    Output shape: (n_channels=8, seq_len=120)
     """
+    
+    # Channel names matching MOMENT
+    CHANNELS = [
+        "acc_x",
+        "acc_y",
+        "acc_z",
+        "skin_temp",
+        "heatflux",
+        "cbt",
+        "hr_bpm",
+        "rmssd"
+    ]
     
     def __init__(self, 
                  windows: List[Dict],
                  label_col: str = "label_5min",
-                 normalize: bool = True):
+                 seq_len: int = 120,
+                 normalize: bool = True,
+                 normalization_mode: str = "subject"):
         """
         Initialize dataset.
         
         Args:
             windows: List of window dictionaries from create_labeled_windows()
             label_col: Label column to use
-            normalize: Whether to normalize features (z-score)
+            seq_len: Expected sequence length (default 120 for 120s windows at 1Hz)
+            normalize: Whether to normalize each channel
+            normalization_mode: How to normalize. Options:
+                - "subject": Use subject-level mean/std (recommended)
+                - "window": Use per-window mean/std
         """
         self.windows = windows
         self.label_col = label_col
+        self.seq_len = seq_len
         self.normalize = normalize
+        self.normalization_mode = normalization_mode
+        self.n_channels = len(self.CHANNELS)
         
-        # Initialize feature extractor
-        self.feature_extractor = BasicFeatureExtractor(default_sampling_rate=1.0)
-        
-        # Pre-compute all features for faster training
+        # Pre-process all windows
         self.samples = []
         self.labels = []
         self.subject_ids = []
         
-        logger.info(f"Extracting features from {len(windows)} windows...")
+        logger.info(f"Processing {len(windows)} windows into raw sequences...")
         
         for i, window in enumerate(windows):
-            features = self._extract_window_features(window)
-            if features is not None:
-                self.samples.append(features)
+            x = self._prepare_window(window)
+            if x is not None:
+                self.samples.append(x)
                 self.labels.append(window.get(label_col, 0))
                 self.subject_ids.append(window.get("subject_id", "unknown"))
             
             if (i + 1) % 100 == 0:
                 logger.info(f"  Processed {i+1}/{len(windows)} windows")
         
-        logger.info(f"Dataset created: {len(self.samples)} samples with {len(features)} features each")
-        
-        # Compute normalization statistics if needed
-        if self.normalize and len(self.samples) > 0:
-            self._compute_normalization_stats()
+        logger.info(f"Dataset created: {len(self.samples)} samples with shape ({self.n_channels}, {self.seq_len})")
     
-    def _extract_window_features(self, window: Dict) -> Optional[np.ndarray]:
+    def _prepare_window(self, window: Dict) -> Optional[np.ndarray]:
         """
-        Extract features from a single window.
+        Prepare a single window as raw multivariate time series.
         
-        Excludes HR/HRV features to match MOMENT's feature set.
+        Extracts 8 channels from window data and normalizes using subject-level stats.
         
         Args:
             window: Window dictionary with 'window_data' DataFrame
+                   and optionally 'subject_stats' for subject-wise normalization
         
         Returns:
-            Array of shape (n_features,) or None if invalid
+            Array of shape (n_channels, seq_len) or None if invalid
         """
         df = window.get("window_data")
         if df is None or len(df) == 0:
             return None
         
-        # Extract features (excluding HR/HRV by not passing hr_hrv_features)
-        features_dict = self.feature_extractor.extract_from_window(df, hr_hrv_features=None)
+        # Get subject-level stats if available
+        subject_stats = window.get("subject_stats", {})
+        use_subject_stats = (self.normalization_mode == "subject" and len(subject_stats) > 0)
         
-        # Filter out HR/HRV features if they ended up in the dict
-        features_dict = {
-            k: v for k, v in features_dict.items() 
-            if not k.startswith("hr_") and not k.startswith("hrv_") and k != "breathing_rate"
-        }
+        channels = []
         
-        # Convert to array
-        feature_names = sorted(features_dict.keys())  # Sort for consistency
-        features = np.array([features_dict[name] for name in feature_names], dtype=np.float32)
+        for channel_name in self.CHANNELS:
+            if channel_name in df.columns:
+                values = df[channel_name].values
+            else:
+                # Try to find column with similar name
+                found = False
+                for col in df.columns:
+                    if channel_name.lower() in col.lower():
+                        values = df[col].values
+                        found = True
+                        break
+                
+                if not found:
+                    # Fill with zeros if channel not found
+                    values = np.zeros(len(df))
+            
+            # Handle NaN values
+            values = np.nan_to_num(values, nan=0.0)
+            
+            # Pad or truncate to seq_len
+            if len(values) < self.seq_len:
+                # Pad with zeros
+                values = np.pad(values, (0, self.seq_len - len(values)), mode='constant')
+            elif len(values) > self.seq_len:
+                # Truncate
+                values = values[:self.seq_len]
+            
+            # Normalize if requested
+            if self.normalize:
+                if use_subject_stats and channel_name in subject_stats:
+                    # Subject-wise normalization (recommended)
+                    mean = subject_stats[channel_name]["mean"]
+                    std = subject_stats[channel_name]["std"]
+                else:
+                    # Fall back to per-window normalization
+                    mean = np.mean(values)
+                    std = np.std(values)
+                
+                if std > 0:
+                    values = (values - mean) / std
+                else:
+                    values = values - mean
+            
+            channels.append(values)
         
-        # Handle NaN/inf
-        features = np.nan_to_num(features, nan=0.0, posinf=0.0, neginf=0.0)
+        # Stack channels: shape (n_channels, seq_len)
+        x = np.stack(channels, axis=0)
         
-        return features
-    
-    def _compute_normalization_stats(self):
-        """Compute mean and std for normalization across all samples."""
-        # Stack all samples
-        all_features = np.stack(self.samples, axis=0)  # Shape: (n_samples, n_features)
-        
-        self.feature_mean = np.mean(all_features, axis=0)
-        self.feature_std = np.std(all_features, axis=0)
-        
-        # Avoid division by zero
-        self.feature_std[self.feature_std == 0] = 1.0
-        
-        logger.info(f"Normalization stats computed: mean={self.feature_mean.mean():.3f}, std={self.feature_std.mean():.3f}")
+        return x.astype(np.float32)
     
     def __len__(self) -> int:
         return len(self.samples)
@@ -149,18 +187,10 @@ class VitaStressTCNDataset(Dataset):
         
         Returns:
             Tuple of (x, y) where:
-            - x: Tensor of shape (n_features, seq_len=1) for TCN
+            - x: Tensor of shape (n_channels, seq_len) for TCN
             - y: Tensor of shape () (scalar label)
         """
-        features = self.samples[idx].copy()
-        
-        # Normalize if requested
-        if self.normalize:
-            features = (features - self.feature_mean) / self.feature_std
-        
-        # Reshape for TCN: (n_features,) -> (n_features, 1)
-        # TCN expects (n_channels, seq_len) where each feature is a "channel"
-        x = torch.tensor(features[:, np.newaxis], dtype=torch.float32)
+        x = torch.tensor(self.samples[idx], dtype=torch.float32)
         y = torch.tensor(self.labels[idx], dtype=torch.long)
         
         return x, y
@@ -169,16 +199,19 @@ class VitaStressTCNDataset(Dataset):
         """Get array of subject IDs for each sample."""
         return np.array(self.subject_ids)
     
-    def get_n_features(self) -> int:
-        """Get number of features."""
-        if len(self.samples) > 0:
-            return self.samples[0].shape[0]
-        return 0
+    def get_n_channels(self) -> int:
+        """Get number of channels."""
+        return self.n_channels
+    
+    def get_seq_len(self) -> int:
+        """Get sequence length."""
+        return self.seq_len
 
 
 def create_tcn_datasets(windows_by_subject: Dict[str, List[Dict]],
                         test_subject: str,
-                        label_col: str = "label_5min") -> Tuple[VitaStressTCNDataset, VitaStressTCNDataset]:
+                        label_col: str = "label_5min",
+                        seq_len: int = 120) -> Tuple[VitaStressTCNDataset, VitaStressTCNDataset]:
     """
     Create train and test datasets for LOSO cross-validation.
     
@@ -186,6 +219,7 @@ def create_tcn_datasets(windows_by_subject: Dict[str, List[Dict]],
         windows_by_subject: Dictionary mapping subject_id to list of windows
         test_subject: Subject ID to hold out for testing
         label_col: Label column to use
+        seq_len: Sequence length (default 120)
     
     Returns:
         Tuple of (train_dataset, test_dataset)
@@ -203,15 +237,17 @@ def create_tcn_datasets(windows_by_subject: Dict[str, List[Dict]],
         else:
             train_windows.extend(windows)
     
-    train_dataset = VitaStressTCNDataset(train_windows, label_col, normalize=True)
-    test_dataset = VitaStressTCNDataset(test_windows, label_col, normalize=True)
+    train_dataset = VitaStressTCNDataset(train_windows, label_col, seq_len, 
+                                         normalize=True, normalization_mode="subject")
+    test_dataset = VitaStressTCNDataset(test_windows, label_col, seq_len,
+                                        normalize=True, normalization_mode="subject")
     
     return train_dataset, test_dataset
 
 
 if __name__ == "__main__":
     # Test dataset creation
-    print("Testing TCN dataset with on-the-fly feature extraction...")
+    print("Testing TCN dataset with raw multivariate time series...")
     
     # Create dummy windows
     np.random.seed(42)
@@ -226,6 +262,8 @@ if __name__ == "__main__":
             "skin_temp": np.random.normal(32, 1, 120),
             "heatflux": np.random.normal(70, 30, 120),
             "cbt": np.random.normal(37.2, 0.1, 120),
+            "hr_bpm": np.random.normal(75, 10, 120),
+            "rmssd": np.random.normal(50, 15, 120),
         })
         
         dummy_windows.append({
@@ -237,10 +275,12 @@ if __name__ == "__main__":
     dataset = VitaStressTCNDataset(dummy_windows)
     
     print(f"Dataset size: {len(dataset)}")
-    print(f"Number of features: {dataset.get_n_features()}")
+    print(f"Number of channels: {dataset.get_n_channels()}")
+    print(f"Sequence length: {dataset.get_seq_len()}")
+    print(f"Channels: {dataset.CHANNELS}")
     
     x, y = dataset[0]
-    print(f"Sample shape: {x.shape}")  # Should be (n_features, 1)
+    print(f"\nSample shape: {x.shape}")  # Should be (8, 120)
     print(f"Label shape: {y.shape}")
     
     print("\n✅ TCN dataset working!")

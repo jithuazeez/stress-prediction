@@ -1,8 +1,15 @@
 """
 Training script for TCN model with LOSO cross-validation.
 
-Uses Temporal Convolutional Network for stress classification with features
-extracted on-the-fly (similar to classical ML, excluding HR/HRV).
+UPDATED: Now uses raw multivariate time series (matching MOMENT architecture).
+Uses Temporal Convolutional Network for stress classification with 8 sensor channels.
+
+Architecture:
+- Input: 8 channels × 120 timesteps (raw sensor data)
+- TCN channels: [16, 16, 16, 16, 16, 16]
+- Dilations: [1, 2, 4, 8, 16, 32] (receptive field = 127)
+- Pooling: Last timestep (maintains causality)
+- Subject-wise normalization
 
 References:
 - https://unit8.com/resources/temporal-convolutional-networks-and-forecasting/
@@ -276,9 +283,10 @@ def loso_cross_validation(windows_by_subject: Dict[str, List[Dict]],
                           threshold_method: str = "geometric_mean",
                           tcn_channels: List[int] = None,
                           kernel_size: int = 3,
-                          dilation_base: int = 2,
+                          dilations: List[int] = None,
                           dropout: float = 0.3,
-                          fc_hidden_dim: int = 128) -> Dict:
+                          fc_hidden_dim: int = 128,
+                          use_last_timestep: bool = True) -> Dict:
     """
     Perform LOSO (Leave-One-Subject-Out) cross-validation with TCN.
     
@@ -291,24 +299,29 @@ def loso_cross_validation(windows_by_subject: Dict[str, List[Dict]],
         batch_size: Batch size for training
         learning_rate: Learning rate for optimizer
         threshold_method: Method to find optimal threshold
-        tcn_channels: List of channel sizes for TCN blocks
+        tcn_channels: List of channel sizes for TCN blocks (default: [16]*6)
         kernel_size: Kernel size for convolutions
-        dilation_base: Base for exponential dilation
+        dilations: List of dilation factors (default: [1, 2, 4, 8, 16, 32])
         dropout: Dropout probability
         fc_hidden_dim: Hidden dimension for FC layers
+        use_last_timestep: If True, use last timestep; else use global pooling
     
     Returns:
         Dict with metrics, predictions, and fold results
     """
     if tcn_channels is None:
-        tcn_channels = [64, 64, 64]
+        tcn_channels = [16, 16, 16, 16, 16, 16]
+    
+    if dilations is None:
+        dilations = [1, 2, 4, 8, 16, 32]
     
     subjects = list(windows_by_subject.keys())
     n_subjects = len(subjects)
     
     logger.info(f"\n{'='*60}")
     logger.info(f"LOSO CV: {n_subjects} subjects | {n_epochs} epochs | batch={batch_size} | lr={learning_rate}")
-    logger.info(f"TCN: channels={tcn_channels} | kernel={kernel_size} | dilation={dilation_base}")
+    logger.info(f"TCN: channels={tcn_channels} | kernel={kernel_size} | dilations={dilations}")
+    logger.info(f"Pooling: {'Last timestep' if use_last_timestep else 'Global average'}")
     logger.info(f"Threshold: {threshold_method} (computed on training data)")
     logger.info(f"{'='*60}")
     
@@ -328,9 +341,10 @@ def loso_cross_validation(windows_by_subject: Dict[str, List[Dict]],
         'learning_rate': learning_rate,
         'tcn_channels': tcn_channels,
         'kernel_size': kernel_size,
-        'dilation_base': dilation_base,
+        'dilations': dilations,
         'dropout': dropout,
         'fc_hidden_dim': fc_hidden_dim,
+        'use_last_timestep': use_last_timestep,
         'window_size_sec': config.window_size_sec,
         'overlap_ratio': config.overlap_ratio,
         'prediction_horizons': config.horizons_minutes,
@@ -339,6 +353,7 @@ def loso_cross_validation(windows_by_subject: Dict[str, List[Dict]],
         'loss_function': 'CrossEntropyLoss_weighted',
         'device': str(device),
         'threshold_method': threshold_method,
+        'normalization': 'subject-wise',
     }
     
     start_time = time.time()
@@ -364,8 +379,12 @@ def loso_cross_validation(windows_by_subject: Dict[str, List[Dict]],
         if len(train_windows) == 0 or len(test_windows) == 0:
             continue
         
-        train_dataset = VitaStressTCNDataset(train_windows, config.target_label, normalize=True)
-        test_dataset = VitaStressTCNDataset(test_windows, config.target_label, normalize=True)
+        train_dataset = VitaStressTCNDataset(train_windows, config.target_label, 
+                                            seq_len=120, normalize=True, 
+                                            normalization_mode="subject")
+        test_dataset = VitaStressTCNDataset(test_windows, config.target_label,
+                                           seq_len=120, normalize=True,
+                                           normalization_mode="subject")
         
         if len(train_dataset) == 0 or len(test_dataset) == 0:
             continue
@@ -373,25 +392,26 @@ def loso_cross_validation(windows_by_subject: Dict[str, List[Dict]],
         train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
         test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
         
-        # Create model
-        num_features = train_dataset.get_n_features()
+        # Create model with new architecture
+        num_channels_input = train_dataset.get_n_channels()  # Should be 8
         model = create_tcn_model(
-            num_inputs=num_features,
+            num_inputs=num_channels_input,
             num_classes=2,
             num_channels=tcn_channels,
             kernel_size=kernel_size,
-            dilation_base=dilation_base,
+            dilations=dilations,
             dropout=dropout,
-            fc_hidden_dim=fc_hidden_dim
+            fc_hidden_dim=fc_hidden_dim,
+            use_last_timestep=use_last_timestep
         ).to(device)
         
         # Log model info on first fold
         if fold_idx == 0:
             total_params = sum(p.numel() for p in model.parameters())
             trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-            receptive_field = model.get_receptive_field(kernel_size, dilation_base)
+            receptive_field = model.get_receptive_field()
             logger.info(f"Model: {total_params:,} params | Trainable: {trainable_params:,} | RF: {receptive_field}")
-            logger.info(f"Features: {num_features}")
+            logger.info(f"Input channels: {num_channels_input} × seq_len: {train_dataset.get_seq_len()}")
         
         # Class weights
         n_pos = sum(1 for w in train_windows if w.get(config.target_label, 0) == 1)
@@ -432,9 +452,12 @@ def loso_cross_validation(windows_by_subject: Dict[str, List[Dict]],
         train_y_true, train_y_proba = evaluate_epoch(model, train_loader, device)
         
         # Find optimal threshold on TRAINING data
+        # Use UNCONSTRAINED geometric mean (no FPR or recall limits)
         fold_threshold, train_thresh_metrics = find_optimal_threshold(
             train_y_true, train_y_proba, 
-            method=threshold_method
+            method=threshold_method,
+            min_recall=0.0,  # No minimum recall constraint
+            max_fpr=1.0      # No maximum FPR constraint
         )
         
         # Evaluate on TEST data using threshold from training
@@ -657,11 +680,12 @@ def main():
         batch_size=32,
         learning_rate=1e-3,
         threshold_method="geometric_mean",
-        tcn_channels=[64, 64, 64],
+        tcn_channels=[16, 16, 16, 16, 16, 16],  # Narrower channels
         kernel_size=3,
-        dilation_base=2,
+        dilations=[1, 2, 4, 8, 16, 32],  # Custom dilations for RF=127
         dropout=0.3,
-        fc_hidden_dim=128
+        fc_hidden_dim=128,
+        use_last_timestep=True  # Use last timestep instead of global pooling
     )
     
     # Log results

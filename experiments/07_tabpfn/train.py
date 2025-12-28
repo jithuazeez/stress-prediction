@@ -61,6 +61,11 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "01_classical_ml"))
 
 import os
 HF_TOKEN = os.environ.get("HF_TOKEN", None)
+print(HF_TOKEN)
+if HF_TOKEN:
+    logging.info("HuggingFace token found in environment (HF_TOKEN)")
+else:
+    logging.info("No HF_TOKEN found. If TabPFN requires authentication, set: export HF_TOKEN=<your_token>")
 
 # Import HRV extractor
 try:
