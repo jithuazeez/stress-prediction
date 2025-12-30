@@ -388,6 +388,7 @@ def get_hyperparameter_grid(model_name: str) -> Dict:
             'solver': ['liblinear', 'saga'],              # Optimizers that support both L1/L2
             'max_iter': [1000]                            # Fixed for convergence
         }
+
     
     elif model_name == "random_forest":
         return {
@@ -594,9 +595,9 @@ def loso_cross_validation(X: np.ndarray,
                           logger,
                           enable_tuning: bool = True,
                           param_grid: Dict = None,
-                          threshold_method: str = "geometric_mean",
-                          min_recall: float = 0.0,
-                          max_fpr: float = 1.0) -> Dict:
+                          threshold_method: str = "constrained_gmean",
+                          min_recall: float = 0.70,
+                          max_fpr: float = 0.30) -> Dict:
     """
     Perform Leave-One-Subject-Out cross-validation with optional hyperparameter tuning.
     
@@ -1176,25 +1177,25 @@ def main():
     models = {
         "logistic_regression": (
             LogisticRegression,
-            {"max_iter": 1000, "random_state": config.random_seed}
+            {"max_iter": 1000,"C": 5.0 ,'penalty':"l1","solver": "saga", "random_state": config.random_seed}
         ),
-        "random_forest": (
-            RandomForestClassifier,
-            {"n_estimators": 100, "max_depth": 10, "random_state": config.random_seed, "n_jobs": -1}
-        ),
-        "svm": (
-            SVC,
-            {"kernel": "rbf", "probability": True, "random_state": config.random_seed, "C": 1.0}
-        ),
+    #     "random_forest": (
+    #         RandomForestClassifier,
+    #         {"n_estimators": 100, "max_depth": 10, "random_state": config.random_seed, "n_jobs": -1}
+    #     ),
+    #     "svm": (
+    #         SVC,
+    #         {"kernel": "rbf", "probability": True, "random_state": config.random_seed, "C": 1.0}
+    #     ),
     }
     
-    if XGBOOST_AVAILABLE:
-        models["xgboost"] = (
-            xgb.XGBClassifier,
-            {"n_estimators": 100, "max_depth": 6, "learning_rate": 0.1,
-             "random_state": config.random_seed, "eval_metric": "logloss", 
-             "n_jobs": -1, "verbosity": 0}
-        )
+    # if XGBOOST_AVAILABLE:
+    #     models["xgboost"] = (
+    #         xgb.XGBClassifier,
+    #         {"n_estimators": 100, "max_depth": 6, "learning_rate": 0.1,
+    #          "random_state": config.random_seed, "eval_metric": "logloss", 
+    #          "n_jobs": -1, "verbosity": 0}
+    #     )
     
     logger.info(f"Models to train: {list(models.keys())}")
     
@@ -1208,8 +1209,8 @@ def main():
         result = loso_cross_validation(
             X, y, subjects_arr, feature_names,
             model_class, model_key, model_kwargs, logger,
-            enable_tuning=True,  # Enable hyperparameter tuning
-            param_grid=param_grid
+            enable_tuning=False,  # Enable hyperparameter tuning
+            param_grid=param_grid, threshold_method= 'constrained_gmean', min_recall=0.70, max_fpr=0.30  
         )
         
         all_results[model_key] = result

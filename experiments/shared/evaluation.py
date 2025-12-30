@@ -20,6 +20,7 @@ from sklearn.metrics import (
 )
 
 
+
 def find_optimal_threshold(y_true: np.ndarray,
                             y_proba: np.ndarray,
                             method: str = "youden",
@@ -99,6 +100,7 @@ def find_optimal_threshold(y_true: np.ndarray,
         
         if len(candidates) == 0:
             # No thresholds meet constraints - fall back to unconstrained gmean
+            print(f"No thresholds satisfy constraints (recall≥{min_recall}, FPR≤{max_fpr}). Falling back to unconstrained geometric_mean.")
             import warnings
             warnings.warn(
                 f"No thresholds satisfy constraints (recall≥{min_recall}, FPR≤{max_fpr}). "

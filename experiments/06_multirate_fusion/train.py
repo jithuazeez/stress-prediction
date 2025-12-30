@@ -217,17 +217,27 @@ def train_fold(
     # Create model
     model = create_model(config).to(device)
     
-    # Class weights for imbalanced data
+    # Class weights for imbalanced data (sklearn balanced formula)
     n_pos = (train_dataset.labels == 1).sum()
     n_neg = (train_dataset.labels == 0).sum()
+    n_total = n_pos + n_neg
+    n_classes = 2
     
     if n_pos > 0 and n_neg > 0:
-        pos_weight = n_neg / n_pos
+        # sklearn formula: weight = n_samples / (n_classes × n_samples_in_class)
+        weight_class_0 = n_total / (n_classes * n_neg)
+        weight_class_1 = n_total / (n_classes * n_pos)
     else:
-        pos_weight = 1.0
+        weight_class_0 = 1.0
+        weight_class_1 = 1.0
     
-    class_weights = torch.tensor([1.0, pos_weight], dtype=torch.float32, device=device)
+    # Use sklearn-style balanced class weights
+    class_weights = torch.tensor([weight_class_0, weight_class_1], dtype=torch.float32).to(device)
     criterion = nn.CrossEntropyLoss(weight=class_weights)
+    
+    if logger:
+        logger.info(f"  Class distribution: {n_pos} positive, {n_neg} negative (ratio 1:{n_neg/max(n_pos,1):.1f})")
+        logger.info(f"  Using class weights (sklearn balanced): [{weight_class_0:.4f}, {weight_class_1:.4f}]")
     
     # Optimizer
     optimizer = optim.AdamW(
@@ -287,13 +297,11 @@ def train_fold(
     # Get predictions on training data
     y_train_true, _, y_train_proba = evaluate_model(model, train_loader, device)
     
-    # Use constrained gmean as default (same as MOMENT)
-    # This ensures minimum recall (0.85) while maintaining low false positive rate (max 0.20)
+    # Use unconstrained geometric mean threshold
+    # Maximizes sqrt(Sensitivity × Specificity) for optimal G-mean
     optimal_threshold, _ = find_optimal_threshold(
         y_train_true, y_train_proba,
-        method="constrained_gmean",
-        min_recall=0.85,
-        max_fpr=0.20
+        method="geometric_mean"
     )
     
     # Evaluate with optimal threshold
@@ -301,8 +309,8 @@ def train_fold(
     train_metrics = compute_training_metrics(y_train_true, y_train_pred, y_train_proba)
     
     logger.info(
-        f"  Constrained G-mean threshold: {optimal_threshold:.4f} "
-        f"(min_recall=0.85, max_fpr=0.20)"
+        f"  Geometric mean threshold: {optimal_threshold:.4f} "
+        f"(maximizes sqrt(Sensitivity × Specificity))"
     )
     logger.info(
         f"  Training metrics: "
@@ -323,11 +331,9 @@ def train_fold(
     metrics["gmean"] = test_metrics["gmean"]
     
     # Save threshold method info
-    metrics["threshold_method"] = "constrained_gmean"
+    metrics["threshold_method"] = "geometric_mean"
     metrics["optimal_threshold"] = optimal_threshold
     metrics["train_epochs"] = epoch + 1
-    metrics["min_recall"] = 0.85
-    metrics["max_fpr"] = 0.20
     
     return metrics, y_true, y_pred, y_proba
 
@@ -484,7 +490,7 @@ def main():
     logger.info(f"  Target: {config.target_label}")
     logger.info(f"  ACC samples: {config.acc_samples_per_window} (3 channels at 32Hz)")
     logger.info(f"  Physio samples: {config.physio_samples_per_window} (5 channels at 1Hz)")
-    logger.info(f"  Threshold method: constrained_gmean (min_recall=0.85, max_fpr=0.20)")
+    logger.info(f"  Threshold method: geometric_mean (unconstrained, maximizes G-mean)")
     logger.info(f"  Channels: acc_x, acc_y, acc_z, skin_temp, heatflux, cbt, hr_bpm, rmssd")
     
     # Device
@@ -548,7 +554,7 @@ def main():
     print(f"{'='*60}")
     print(f"Window: {config.window_size_sec}s | Horizon: {args.horizon}min")
     print(f"Channels: 8 (same as MOMENT, at native rates)")
-    print(f"Threshold Method: constrained_gmean (min_recall=0.85, max_fpr=0.20)")
+    print(f"Threshold Method: geometric_mean (unconstrained, maximizes G-mean)")
     print(f"AUROC: {aggregated.get('auroc_mean', 0):.3f} ± {aggregated.get('auroc_std', 0):.3f}")
     print(f"PR-AUC: {aggregated.get('pr_auc_mean', 0):.3f} ± {aggregated.get('pr_auc_std', 0):.3f}")
     print(f"F1: {aggregated.get('f1_mean', 0):.3f} ± {aggregated.get('f1_std', 0):.3f}")

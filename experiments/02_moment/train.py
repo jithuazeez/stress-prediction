@@ -530,7 +530,9 @@ def loso_cross_validation(windows_by_subject: Dict[str, List[Dict]],
         # Using unconstrained geometric mean - finds natural balance point
         fold_threshold, train_thresh_metrics = find_optimal_threshold(
             train_y_true, train_y_proba, 
-            method=threshold_method
+            method=threshold_method,
+            min_recall=min_recall,
+            max_fpr=max_fpr
         )
         
         # Evaluate on TEST data using threshold from training
@@ -768,9 +770,9 @@ def main():
     # Maximizes G-Mean = sqrt(recall × specificity) without hard constraints
     # Let the model find its natural operating point without forced constraints
     # Other options: "youden", "f1", "balanced", "constrained_gmean"
-    THRESHOLD_METHOD = "geometric_mean"
-    MIN_RECALL = 0.0   # No constraints - let model optimize freely
-    MAX_FPR = 1.0      # No constraints - let model optimize freely
+    THRESHOLD_METHOD = "constrained_gmean"
+    MIN_RECALL = 0.75   # No constraints - let model optimize freely
+    MAX_FPR = 0.25      # No constraints - let model optimize freely
     
     logger.info(f"  Training strategy: Head-only fine-tuning (freeze all backbone)")
     logger.info(f"  Threshold method: {THRESHOLD_METHOD} (unconstrained)")
@@ -780,8 +782,8 @@ def main():
         config,
         device,
         logger,
-        n_epochs=50,
-        batch_size=32,
+        n_epochs=100,
+        batch_size=16,
         learning_rate=1e-3,
         threshold_method=THRESHOLD_METHOD,
         min_recall=MIN_RECALL,

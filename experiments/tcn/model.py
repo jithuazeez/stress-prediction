@@ -17,10 +17,12 @@ Key features:
 - Custom dilation pattern [1, 2, 4, 8, 16, 32] for receptive field = 127
 - Residual connections for deep networks
 - Multivariate time series input (8 channels × 120 timesteps)
+- Focal Loss for handling class imbalance
 
 For our use case:
 - Input: (batch, n_channels=8, seq_len=120) raw sensor data
 - Output: (batch, num_classes) for classification
+- Loss: FocalLoss with alpha=0.88, gamma=2.0 for 1:7 class imbalance
 """
 
 import torch
@@ -29,6 +31,81 @@ import torch.nn.functional as F
 from torch.nn.utils import weight_norm
 import numpy as np
 from typing import List, Tuple
+
+
+class FocalLoss(nn.Module):
+    """
+    Focal Loss for handling class imbalance in binary/multi-class classification.
+    
+    Focal Loss down-weights easy examples and focuses on hard negatives.
+    Formula: FL(p_t) = -α_t × (1 - p_t)^γ × log(p_t)
+    
+    Reference: Lin et al. "Focal Loss for Dense Object Detection" (2017)
+    
+    Args:
+        alpha: Weight for positive class (0-1). Default: 0.88 for 1:7 imbalance
+               alpha=0.88 means positive class gets 0.88 weight, negative gets 0.12
+        gamma: Focusing parameter. Default: 2.0 (standard)
+               gamma=0 → standard weighted cross-entropy
+               gamma>0 → increasingly focuses on hard examples
+               Typical values: [0, 1, 2, 5]
+        reduction: 'mean', 'sum', or 'none'
+    
+    Usage:
+        criterion = FocalLoss(alpha=0.88, gamma=2.0)
+        loss = criterion(logits, targets)
+    """
+    def __init__(self, alpha: float = 0.88, gamma: float = 2.0, reduction: str = 'mean'):
+        super(FocalLoss, self).__init__()
+        self.alpha = alpha
+        self.gamma = gamma
+        self.reduction = reduction
+        
+        if not 0 <= alpha <= 1:
+            raise ValueError(f"alpha must be in [0, 1], got {alpha}")
+        if gamma < 0:
+            raise ValueError(f"gamma must be non-negative, got {gamma}")
+    
+    def forward(self, logits: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
+        """
+        Args:
+            logits: (batch_size, num_classes) - raw model outputs (before softmax)
+            targets: (batch_size,) - class labels as integers (0 or 1 for binary)
+        
+        Returns:
+            Scalar loss value
+        """
+        # Get probabilities using softmax
+        probs = F.softmax(logits, dim=1)
+        
+        # Get probability of the true class for each sample
+        # targets: [0, 1, 0, ...] -> one_hot: [[1,0], [0,1], [1,0], ...]
+        targets_one_hot = F.one_hot(targets, num_classes=logits.shape[1]).float()
+        pt = (probs * targets_one_hot).sum(dim=1)  # p_t: probability of true class
+        
+        # Compute focal weight: (1 - p_t)^gamma
+        # Easy examples (pt → 1): focal_weight → 0 (low loss)
+        # Hard examples (pt → 0.5): focal_weight → moderate (high loss)
+        focal_weight = (1 - pt) ** self.gamma
+        
+        # Compute alpha weight for each sample
+        # If target=1 (positive): use alpha
+        # If target=0 (negative): use (1 - alpha)
+        alpha_t = targets.float() * self.alpha + (1 - targets.float()) * (1 - self.alpha)
+        
+        # Compute standard cross-entropy (without reduction)
+        ce_loss = F.cross_entropy(logits, targets, reduction='none')
+        
+        # Combine: Focal Loss = alpha_t × (1 - p_t)^gamma × CE
+        focal_loss = alpha_t * focal_weight * ce_loss
+        
+        # Apply reduction
+        if self.reduction == 'mean':
+            return focal_loss.mean()
+        elif self.reduction == 'sum':
+            return focal_loss.sum()
+        else:
+            return focal_loss
 
 
 class Chomp1d(nn.Module):

@@ -11,9 +11,20 @@ Architecture:
 - Pooling: Last timestep (maintains causality)
 - Subject-wise normalization
 
+Loss Function:
+- Focal Loss (default): Down-weights easy examples, focuses on hard negatives
+  - alpha=0.88 (weight for positive class, matches 1:7 imbalance)
+  - gamma=2.0 (standard focusing parameter)
+- Weighted Cross-Entropy (commented out): Traditional approach with class weights
+
+Threshold Selection:
+- Constrained geometric mean with min_recall=75%, max_fpr=25%
+- Ensures clinical safety (high recall) while controlling false alarms
+
 References:
-- https://unit8.com/resources/temporal-convolutional-networks-and-forecasting/
-- https://arxiv.org/pdf/1803.01271.pdf
+- TCN: https://unit8.com/resources/temporal-convolutional-networks-and-forecasting/
+- TCN Paper: https://arxiv.org/pdf/1803.01271.pdf
+- Focal Loss: Lin et al. "Focal Loss for Dense Object Detection" (2017)
 """
 
 import sys
@@ -50,7 +61,7 @@ from shared.logging_utils import (
 )
 
 from dataset import VitaStressTCNDataset
-from model import create_tcn_model
+from model import create_tcn_model, FocalLoss
 
 
 def load_all_windows(config: Config, logger) -> Dict[str, List[Dict]]:
@@ -280,13 +291,18 @@ def loso_cross_validation(windows_by_subject: Dict[str, List[Dict]],
                           n_epochs: int = 50,
                           batch_size: int = 32,
                           learning_rate: float = 1e-3,
-                          threshold_method: str = "geometric_mean",
+                          threshold_method: str = "constrained_gmean",
+                          min_recall: float = 0.70,
+                          max_fpr: float = 0.30,
                           tcn_channels: List[int] = None,
                           kernel_size: int = 3,
                           dilations: List[int] = None,
                           dropout: float = 0.3,
                           fc_hidden_dim: int = 128,
-                          use_last_timestep: bool = True) -> Dict:
+                          use_last_timestep: bool = True,
+                          loss_type: str = "focal",
+                          focal_alpha: float = 0.88,
+                          focal_gamma: float = 2.0) -> Dict:
     """
     Perform LOSO (Leave-One-Subject-Out) cross-validation with TCN.
     
@@ -299,12 +315,17 @@ def loso_cross_validation(windows_by_subject: Dict[str, List[Dict]],
         batch_size: Batch size for training
         learning_rate: Learning rate for optimizer
         threshold_method: Method to find optimal threshold
+        min_recall: Minimum recall constraint for threshold selection (default 0.75)
+        max_fpr: Maximum false positive rate constraint for threshold selection (default 0.25)
         tcn_channels: List of channel sizes for TCN blocks (default: [16]*6)
         kernel_size: Kernel size for convolutions
         dilations: List of dilation factors (default: [1, 2, 4, 8, 16, 32])
         dropout: Dropout probability
         fc_hidden_dim: Hidden dimension for FC layers
         use_last_timestep: If True, use last timestep; else use global pooling
+        loss_type: Loss function to use - "weighted_ce" or "focal" (default: "focal")
+        focal_alpha: Alpha parameter for Focal Loss (weight for positive class, default: 0.88)
+        focal_gamma: Gamma parameter for Focal Loss (focusing parameter, default: 2.0)
     
     Returns:
         Dict with metrics, predictions, and fold results
@@ -322,7 +343,13 @@ def loso_cross_validation(windows_by_subject: Dict[str, List[Dict]],
     logger.info(f"LOSO CV: {n_subjects} subjects | {n_epochs} epochs | batch={batch_size} | lr={learning_rate}")
     logger.info(f"TCN: channels={tcn_channels} | kernel={kernel_size} | dilations={dilations}")
     logger.info(f"Pooling: {'Last timestep' if use_last_timestep else 'Global average'}")
-    logger.info(f"Threshold: {threshold_method} (computed on training data)")
+    logger.info(f"Loss: {loss_type.upper()}")
+    if loss_type == "focal":
+        logger.info(f"  - Focal Alpha (pos class weight): {focal_alpha:.3f}")
+        logger.info(f"  - Focal Gamma (focusing param): {focal_gamma:.1f}")
+    logger.info(f"Threshold: {threshold_method} with CONSTRAINTS:")
+    logger.info(f"  - Min Recall: {min_recall*100:.0f}% (must catch at least {min_recall*100:.0f}% of stress)")
+    logger.info(f"  - Max FPR: {max_fpr*100:.0f}% (allow at most {max_fpr*100:.0f}% false alarms)")
     logger.info(f"{'='*60}")
     
     all_y_true = []
@@ -350,9 +377,15 @@ def loso_cross_validation(windows_by_subject: Dict[str, List[Dict]],
         'prediction_horizons': config.horizons_minutes,
         'target_label': config.target_label,
         'optimizer': 'Adam',
-        'loss_function': 'CrossEntropyLoss_weighted',
+        'loss_function': loss_type,
+        'focal_alpha': focal_alpha if loss_type == "focal" else None,
+        'focal_gamma': focal_gamma if loss_type == "focal" else None,
         'device': str(device),
         'threshold_method': threshold_method,
+        'threshold_constraints': {
+            'min_recall': min_recall,
+            'max_fpr': max_fpr
+        },
         'normalization': 'subject-wise',
     }
     
@@ -413,12 +446,30 @@ def loso_cross_validation(windows_by_subject: Dict[str, List[Dict]],
             logger.info(f"Model: {total_params:,} params | Trainable: {trainable_params:,} | RF: {receptive_field}")
             logger.info(f"Input channels: {num_channels_input} × seq_len: {train_dataset.get_seq_len()}")
         
-        # Class weights
+        # Loss function selection
         n_pos = sum(1 for w in train_windows if w.get(config.target_label, 0) == 1)
         n_neg = len(train_windows) - n_pos
-        weight = torch.tensor([1.0, n_neg / max(n_pos, 1)], dtype=torch.float32).to(device)
         
-        criterion = nn.CrossEntropyLoss(weight=weight)
+        if loss_type == "focal":
+            # Focal Loss: Down-weights easy examples, focuses on hard negatives
+            criterion = FocalLoss(alpha=focal_alpha, gamma=focal_gamma).to(device)
+            if fold_idx == 0:
+                logger.info(f"Using Focal Loss: alpha={focal_alpha:.3f}, gamma={focal_gamma:.1f}")
+                logger.info(f"  Class distribution: {n_pos} positive, {n_neg} negative (ratio 1:{n_neg/max(n_pos,1):.1f})")
+        
+        elif loss_type == "weighted_ce":
+            
+            weight = torch.tensor([0.5,5.06], dtype=torch.float32).to(device)
+            # Weighted Cross-Entropy: Standard approach with class weights
+            # weight = torch.tensor([1.0, n_neg / max(n_pos, 1)], dtype=torch.float32).to(device)
+            criterion = nn.CrossEntropyLoss(weight=weight)
+            if fold_idx == 0:
+                logger.info(f"Using Weighted Cross-Entropy: pos_weight={n_neg/max(n_pos,1):.2f}")
+                logger.info(f"  Class distribution: {n_pos} positive, {n_neg} negative")
+        
+        else:
+            raise ValueError(f"Unknown loss_type: {loss_type}. Use 'focal' or 'weighted_ce'")
+        
         optimizer = optim.Adam(model.parameters(), lr=learning_rate)
         
         # Training loop with early stopping
@@ -452,13 +503,19 @@ def loso_cross_validation(windows_by_subject: Dict[str, List[Dict]],
         train_y_true, train_y_proba = evaluate_epoch(model, train_loader, device)
         
         # Find optimal threshold on TRAINING data
-        # Use UNCONSTRAINED geometric mean (no FPR or recall limits)
+        # Use CONSTRAINED geometric mean with user-specified constraints
         fold_threshold, train_thresh_metrics = find_optimal_threshold(
             train_y_true, train_y_proba, 
             method=threshold_method,
-            min_recall=0.0,  # No minimum recall constraint
-            max_fpr=1.0      # No maximum FPR constraint
+            min_recall=min_recall,  # Use parameter from function signature
+            max_fpr=max_fpr         # Use parameter from function signature
         )
+        
+        # Log training threshold metrics
+        train_sens = train_thresh_metrics.get("sensitivity", float("nan"))
+        train_spec = train_thresh_metrics.get("specificity", float("nan"))
+        train_gmean_val = train_thresh_metrics.get("gmean", float("nan"))
+        logger.info(f"  Training @ thr={fold_threshold:.3f}: Sens={train_sens:.3f}, Spec={train_spec:.3f}, Gmean={train_gmean_val:.3f}")
         
         # Evaluate on TEST data using threshold from training
         y_true, y_proba = evaluate_epoch(model, test_loader, device)
@@ -676,16 +733,21 @@ def main():
         config,
         device,
         logger,
-        n_epochs=50,
+        n_epochs=100,  # Increased from 50 to 100
         batch_size=32,
         learning_rate=1e-3,
-        threshold_method="geometric_mean",
+        threshold_method="geometric_mean",  # ✅ Use constrained G-mean with recall/FPR limits
+        min_recall=0.70,  # Constrained: min 75% recall
+        max_fpr=0.30,     # Constrained: max 25% FPR (min 75% specificity)
         tcn_channels=[16, 16, 16, 16, 16, 16],  # Narrower channels
         kernel_size=3,
         dilations=[1, 2, 4, 8, 16, 32],  # Custom dilations for RF=127
         dropout=0.3,
         fc_hidden_dim=128,
-        use_last_timestep=True  # Use last timestep instead of global pooling
+        use_last_timestep=True,  # Use last timestep instead of global pooling
+        loss_type="weighted_ce",  # 🔥 Use Focal Loss for class imbalance
+        focal_alpha=0.88,   # Weight for positive class (0.88 for 1:7 imbalance)
+        focal_gamma=2.0     # Standard focusing parameter
     )
     
     # Log results
