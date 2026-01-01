@@ -1,11 +1,13 @@
 """
 Feature extraction for classical ML models - EMOTIONAL STRESS PREDICTION.
 
+⚠️ FEATURE SELECTION APPLIED: REDUCED FROM 65 TO 39 FEATURES
+
 Goal: Detect emotional/mental stress, NOT physical exertion.
 
 Features include:
 1. STRESS INDICATORS: fidgeting, tremors, restlessness
-2. ACTIVITY CLASSIFICATION: distinguish sitting vs exercise
+2. MOVEMENT PATTERNS: variability, frequency characteristics
 
 This helps the model learn:
 - Emotional stress (sitting + fidgeting + elevated arousal)
@@ -16,8 +18,16 @@ Key features:
 - Missing data analysis per modality
 - Class ratio reporting
 
-Features (~65 total):
-- Accelerometer (41): stress indicators + activity classification
+Features (~39 total, reduced from 65):
+- Accelerometer (15, reduced from 41): TOP stress indicators only
+  ✅ KEPT: dominant_freq_power, magnitude_max, sma, zcr, spectral_entropy,
+           magnitude_std, jerk_max, magnitude_skewness, jerk_mean, y_std,
+           x_std, magnitude_mean, ima, magnitude_kurtosis, jerk_energy
+  ❌ REMOVED: Posture features (tilt_x/y/z, roll/pitch) - confounding variables
+              Redundant stats (min, median, range, iqr, z_std)
+              Low-importance frequency features (psd_bands, freq_ratios)
+              Activity flags (is_stationary, is_walking, motion_flag)
+              
 - Temperature (7): skin_temp stats, slope, change
 - Heat Flux (9): heatflux + CBT enhanced features
 - HR/HRV from PPG (8): time-domain features only from 64Hz HeartPy
@@ -27,6 +37,10 @@ Features (~65 total):
 NOTE: HR/HRV features extracted from raw PPG at 64Hz BEFORE 1Hz alignment
 to preserve cardiac waveform structure. Uses HeartPy for validated extraction.
 Frequency-domain features excluded (unreliable for 120s windows).
+
+RATIONALE: Feature reduction based on Logistic Regression model importance analysis.
+Removes confounding variables (posture captured lab protocol, not stress) and
+redundant features (improves generalization and reduces overfitting).
 """
 
 import sys

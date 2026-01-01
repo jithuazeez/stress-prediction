@@ -193,11 +193,11 @@ def extract_hrv_features(
         features['hrv_pnn50'] = float(measures.get('pnn50', np.nan))
         features['hrv_pnn20'] = float(measures.get('pnn20', np.nan))
         features['hrv_sdsd'] = float(measures.get('sdsd', np.nan))
-        features['hrv_lf'] = float(measures.get('lf', np.nan))
-        features['hrv_hf'] = float(measures.get('hf', np.nan))
-        features['hrv_lf_hf_ratio'] = float(measures.get('lf/hf', np.nan))
-        features['breathing_rate'] = float(measures.get('breathingrate', np.nan))
-        features['hr_peak_rejection_rate'] = float(rejection_rate)
+        # features['hrv_lf'] = float(measures.get('lf', np.nan))
+        # features['hrv_hf'] = float(measures.get('hf', np.nan))
+        # features['hrv_lf_hf_ratio'] = float(measures.get('lf/hf', np.nan))
+        # features['breathing_rate'] = float(measures.get('breathingrate', np.nan))
+        # features['hr_peak_rejection_rate'] = float(rejection_rate)
         
         # Calculate additional features from RR intervals
         rr_list = working_data.get('RR_list_cor', working_data.get('RR_list', []))

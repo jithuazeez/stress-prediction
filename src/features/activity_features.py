@@ -1,16 +1,40 @@
 """
 Accelerometer feature extraction for EMOTIONAL STRESS PREDICTION.
 
-Two feature groups:
-1. STRESS INDICATORS: fidgeting, tremors, restlessness
-2. ACTIVITY CLASSIFICATION: distinguish sitting vs. running/exercise
+⚠️ FEATURE SELECTION APPLIED: REDUCED TO TOP 15 FEATURES
 
-The goal is to detect emotional stress ONLY, not physical exertion.
-Activity features help the model learn:
-- "High HR + sitting still" → Likely emotional stress
-- "High HR + running/walking" → Just exercise, not emotional stress
+Original: 41 features
+Current:  15 features (based on LR model importance analysis)
 
-Based on: "Feature Engineering for Human Activity Recognition" (Atalaa et al.)
+Features kept (sorted by importance):
+1. acc_dominant_freq_power (|coef|=0.67) - Movement rhythmicity
+2. acc_magnitude_max (0.67) - Maximum movement
+3. acc_sma (0.64) - Signal magnitude area
+4. acc_zcr (0.62) - Zero crossing rate
+5. acc_spectral_entropy (0.52) - Frequency randomness
+6. acc_magnitude_std (0.50) - Movement variability
+7. acc_jerk_max (0.50) - Maximum sudden movement (tremor)
+8. acc_magnitude_skewness (0.45) - Distribution asymmetry
+9. acc_jerk_mean (0.39) - Average jerkiness (fidgeting)
+10. acc_y_std (0.39) - Y-axis variability
+11. acc_x_std (0.33) - X-axis variability
+12. acc_magnitude_mean (0.32) - Average movement
+13. acc_ima (0.32) - Integral of magnitude
+14. acc_magnitude_kurtosis (0.26) - Distribution peakedness
+15. acc_jerk_energy (0.24) - Energy in sudden movements
+
+Features removed (26 features):
+- Redundant statistics: min, max, range, median, iqr, energy, acc_z_std
+- Low-importance frequency: dominant_freq, freq_ratios, psd_bands, spectral_energy
+- Activity flags: is_stationary, is_walking, is_high_activity, activity_score, motion_flag
+- Posture features (CONFOUNDING): tilt_x/y/z, roll_angle, pitch_angle
+  (These captured experimental setup "sitting vs cycling", not true stress)
+
+Goal: Detect emotional/mental stress, NOT physical exertion.
+The reduced feature set focuses on physiological stress indicators while
+removing confounding variables from the experimental protocol.
+
+Based on: Feature importance from trained Logistic Regression model
 """
 
 import numpy as np
@@ -22,15 +46,21 @@ from scipy.fft import fft, fftfreq
 
 class ActivityFeatureExtractor:
     """
-    Extract features from 3-axis accelerometer data.
+    Extract TOP 15 accelerometer features for emotional stress detection.
     
-    Two purposes:
-    1. Detect stress-related movement (fidgeting, tremors)
-    2. Classify activity level (sitting vs walking vs running)
+    ⚠️ FEATURE SELECTION APPLIED (reduced from 41 to 15 features)
     
-    This helps distinguish:
-    - Emotional stress (sitting, high HR, fidgeting)
-    - Physical activity (moving, high HR, rhythmic motion)
+    Focuses on:
+    1. Movement variability and intensity (magnitude, std, max)
+    2. Stress-related patterns (jerk features for tremors/fidgeting)
+    3. Frequency characteristics (spectral entropy, dominant freq power)
+    
+    Removed:
+    - Redundant statistical features (26 features)
+    - Posture/tilt features (confounding with experimental setup)
+    
+    This helps focus on true physiological stress indicators while
+    avoiding overfitting to experimental artifacts.
     """
     
     def __init__(self, sampling_rate: float = 1.0):
@@ -326,8 +356,8 @@ class ActivityFeatureExtractor:
         result["is_high_activity"] = 1 if (magnitude_std > 1.0 or energy > 2.0) else 0
         
         # Activity score (0-1): higher = more physical activity
-        activity_score = min(1.0, (magnitude_std / 2.0 + activity_freq_ratio) / 2)
-        result["activity_score"] = activity_score
+        # activity_score = min(1.0, (magnitude_std / 2.0 + activity_freq_ratio) / 2)
+        # result["activity_score"] = activity_score
         
         return result
     
@@ -339,22 +369,23 @@ class ActivityFeatureExtractor:
                                   acc_z: np.ndarray,
                                   include_frequency: bool = True) -> Dict[str, float]:
         """
-        Extract all features for emotional stress detection.
+        Extract TOP 15 features for emotional stress detection.
         
-        Features include:
-        1. Stress indicators (fidgeting, tremors, variability)
-        2. Activity classification (sitting vs walking vs running)
+        ⚠️ REDUCED FEATURE SET (15 from original 41)
         
-        The combination helps distinguish:
-        - Emotional stress (sitting + high HR + fidgeting)
-        - Physical exercise (running + high HR + rhythmic motion)
+        Features extracted:
+        - Movement variability (6): mean, std, max, x_std, y_std, skewness, kurtosis
+        - Activity level (2): sma, ima
+        - Movement patterns (1): zcr (zero crossing rate)
+        - Jerk features (3): jerk_mean, jerk_max, jerk_energy
+        - Frequency (2): dominant_freq_power, spectral_entropy
         
         Args:
             acc_x, acc_y, acc_z: Acceleration values for each axis
-            include_frequency: Include frequency domain features
+            include_frequency: Include frequency domain features (default True)
         
         Returns:
-            Dictionary of ~35 features
+            Dictionary of 15 features (or fewer if frequency excluded)
         """
         if len(acc_x) == 0:
             return {}
@@ -367,78 +398,95 @@ class ActivityFeatureExtractor:
         # -----------------------------------------------------------------
         # MOVEMENT VARIABILITY (stress indicators)
         # -----------------------------------------------------------------
+        # ✅ FEATURE SELECTION: Keeping only top 15 most important features
         
-        features["acc_magnitude_mean"] = np.mean(magnitude)
-        features["acc_magnitude_std"] = np.std(magnitude)
-        features["acc_magnitude_min"] = np.min(magnitude)
-        features["acc_magnitude_max"] = np.max(magnitude)
-        features["acc_magnitude_range"] = np.ptp(magnitude)
-        features["acc_magnitude_median"] = np.median(magnitude)
+        features["acc_magnitude_mean"] = np.mean(magnitude)  # ✅ KEEP (rank 12)
+        features["acc_magnitude_std"] = np.std(magnitude)    # ✅ KEEP (rank 6)
+        # features["acc_magnitude_min"] = np.min(magnitude)    # ❌ REMOVED (low importance)
+        features["acc_magnitude_max"] = np.max(magnitude)    # ✅ KEEP (rank 2)
+        # features["acc_magnitude_range"] = np.ptp(magnitude)  # ❌ REMOVED (redundant with max)
+        # features["acc_magnitude_median"] = np.median(magnitude)  # ❌ REMOVED (redundant with mean)
         
-        q75, q25 = np.percentile(magnitude, [75, 25])
-        features["acc_magnitude_iqr"] = q75 - q25
+        # q75, q25 = np.percentile(magnitude, [75, 25])
+        # features["acc_magnitude_iqr"] = q75 - q25  # ❌ REMOVED (redundant with std)
         
-        features["acc_x_std"] = np.std(acc_x)
-        features["acc_y_std"] = np.std(acc_y)
-        features["acc_z_std"] = np.std(acc_z)
+        features["acc_x_std"] = np.std(acc_x)  # ✅ KEEP (rank 11)
+        features["acc_y_std"] = np.std(acc_y)  # ✅ KEEP (rank 10)
+        # features["acc_z_std"] = np.std(acc_z)  # ❌ REMOVED (x and y more informative)
         
         # -----------------------------------------------------------------
         # ACTIVITY LEVEL
         # -----------------------------------------------------------------
         
-        features["acc_sma"] = self.calculate_sma(acc_x, acc_y, acc_z)
-        features["acc_ima"] = self.calculate_ima(acc_x, acc_y, acc_z)
-        features["acc_energy"] = self.calculate_energy(magnitude)
+        features["acc_sma"] = self.calculate_sma(acc_x, acc_y, acc_z)  # ✅ KEEP (rank 3)
+        features["acc_ima"] = self.calculate_ima(acc_x, acc_y, acc_z)  # ✅ KEEP (rank 13)
+        # features["acc_energy"] = self.calculate_energy(magnitude)  # ❌ REMOVED (redundant with sma/ima)
         
         # -----------------------------------------------------------------
         # MOVEMENT PATTERNS (stress indicators)
         # -----------------------------------------------------------------
         
-        features["acc_zcr"] = self.calculate_zero_crossing_rate(magnitude)
-        features["acc_magnitude_skewness"] = self.calculate_skewness(magnitude)
-        features["acc_magnitude_kurtosis"] = self.calculate_kurtosis(magnitude)
+        features["acc_zcr"] = self.calculate_zero_crossing_rate(magnitude)  # ✅ KEEP (rank 4)
+        features["acc_magnitude_skewness"] = self.calculate_skewness(magnitude)  # ✅ KEEP (rank 8)
+        features["acc_magnitude_kurtosis"] = self.calculate_kurtosis(magnitude)  # ✅ KEEP (rank 14)
         
         # -----------------------------------------------------------------
         # JERK FEATURES (sudden movements - KEY for stress)
         # -----------------------------------------------------------------
+        # ✅ KEEP: acc_jerk_mean (rank 9), acc_jerk_max (rank 7), acc_jerk_energy (rank 15)
+        # ❌ REMOVE: acc_jerk_std (not in top 15)
         
         jerk_features = self.extract_jerk_features(magnitude)
-        features.update(jerk_features)
+        features["acc_jerk_mean"] = jerk_features.get("acc_jerk_mean", np.nan)  # ✅ KEEP
+        # features["acc_jerk_std"] = jerk_features.get("acc_jerk_std", np.nan)  # ❌ REMOVED
+        features["acc_jerk_max"] = jerk_features.get("acc_jerk_max", np.nan)  # ✅ KEEP
+        features["acc_jerk_energy"] = jerk_features.get("acc_jerk_energy", np.nan)  # ✅ KEEP
         
         # -----------------------------------------------------------------
         # ACTIVITY CLASSIFICATION FEATURES
         # -----------------------------------------------------------------
         
-        # Tilt/posture
-        tilt_features = self.calculate_tilt_angles(acc_x, acc_y, acc_z)
-        features.update(tilt_features)
+        # ❌ POSTURE/TILT FEATURES REMOVED (confounding with experimental setup)
+        # These ranked high but capture experimental artifacts (sitting vs cycling)
+        # NOT true physiological stress indicators
+        # tilt_features = self.calculate_tilt_angles(acc_x, acc_y, acc_z)
+        # features.update(tilt_features)  # REMOVED: tilt_x, tilt_y, tilt_z, roll_angle, pitch_angle
         
         # -----------------------------------------------------------------
         # FREQUENCY DOMAIN
         # -----------------------------------------------------------------
         
         if include_frequency:
+            # ✅ KEEP: acc_dominant_freq_power (rank 1), acc_spectral_entropy (rank 5)
+            # ❌ REMOVE: Other frequency features (not in top 15)
+            
             # Dominant frequency (key for activity classification)
             freq_features = self.calculate_dominant_frequency(magnitude)
-            features.update(freq_features)
+            features["acc_dominant_freq_power"] = freq_features.get("acc_dominant_freq_power", 0.0)  # ✅ KEEP
+            # features["acc_dominant_freq"] = freq_features.get("acc_dominant_freq", 0.0)  # ❌ REMOVED
+            # features["acc_freq_ratio_low"] = freq_features.get("acc_freq_ratio_low", 0.0)  # ❌ REMOVED
+            # features["acc_freq_ratio_activity"] = freq_features.get("acc_freq_ratio_activity", 0.0)  # ❌ REMOVED
             
             # Spectral features
             spectral_features = self.calculate_spectral_features(magnitude)
-            features.update(spectral_features)
+            features["acc_spectral_entropy"] = spectral_features.get("acc_spectral_entropy", np.nan)  # ✅ KEEP
+            # features["acc_spectral_energy"] = spectral_features.get("acc_spectral_energy", np.nan)  # ❌ REMOVED
             
-            # PSD bands (activity-specific)
-            psd_features = self.calculate_psd_bands(magnitude)
-            features.update(psd_features)
+            # ❌ PSD bands ALL REMOVED (not in top 15)
+            # psd_features = self.calculate_psd_bands(magnitude)
+            # features.update(psd_features)  # REMOVED: acc_psd_stillness, slow_move, walking, running, total
         
         # -----------------------------------------------------------------
         # ACTIVITY LEVEL CLASSIFICATION
         # -----------------------------------------------------------------
+        # ❌ ALL REMOVED (not in top 15 features)
+        # These were useful but lower importance than physiological features
         
-        activity_class = self.classify_activity_level(features)
-        features.update(activity_class)
+        # activity_class = self.classify_activity_level(features)
+        # features.update(activity_class)  # REMOVED: is_stationary, is_walking, is_high_activity, activity_score
         
         # Motion flag
-        features["motion_flag"] = 1 if features["acc_magnitude_std"] > 0.5 else 0
+        # features["motion_flag"] = 1 if features["acc_magnitude_std"] > 0.5 else 0  # ❌ REMOVED
         
         return features
 
@@ -452,40 +500,74 @@ def extract_activity_from_acc(acc_x: np.ndarray, acc_y: np.ndarray,
     return extractor.extract_activity_features(acc_x, acc_y, acc_z, include_frequency)
 
 
-# List of features
+# List of features - REDUCED TO TOP 15 MOST IMPORTANT
+# Based on feature importance analysis from trained Logistic Regression model
 STRESS_ACC_FEATURES = [
-    # Movement variability
-    "acc_magnitude_mean", "acc_magnitude_std", "acc_magnitude_min",
-    "acc_magnitude_max", "acc_magnitude_range", "acc_magnitude_median",
-    "acc_magnitude_iqr", "acc_x_std", "acc_y_std", "acc_z_std",
-    
-    # Activity level
-    "acc_sma", "acc_ima", "acc_energy",
-    
-    # Movement patterns
-    "acc_zcr", "acc_magnitude_skewness", "acc_magnitude_kurtosis",
-    
-    # Jerk (stress indicators)
-    "acc_jerk_mean", "acc_jerk_std", "acc_jerk_max", "acc_jerk_energy",
-    
-    # Posture/tilt (activity classification)
-    "tilt_x", "tilt_y", "tilt_z", "roll_angle", "pitch_angle",
-    
-    # Frequency domain (activity classification)
-    "acc_dominant_freq", "acc_dominant_freq_power",
-    "acc_freq_ratio_low", "acc_freq_ratio_activity",
-    "acc_spectral_energy", "acc_spectral_entropy",
-    
-    # PSD bands (activity classification)
-    "acc_psd_stillness", "acc_psd_slow_move", "acc_psd_walking",
-    "acc_psd_running", "acc_psd_total",
-    
-    # Activity classification
-    "is_stationary", "is_walking", "is_high_activity", "activity_score",
-    
-    # Motion flag
-    "motion_flag",
+    # ✅ TOP 15 FEATURES ONLY (sorted by importance rank)
+    "acc_dominant_freq_power",     # Rank 1:  |coef|=0.6736
+    "acc_magnitude_max",           # Rank 2:  |coef|=0.6651
+    "acc_sma",                     # Rank 3:  |coef|=0.6428
+    "acc_zcr",                     # Rank 4:  |coef|=0.6150
+    "acc_spectral_entropy",        # Rank 5:  |coef|=0.5233
+    "acc_magnitude_std",           # Rank 6:  |coef|=0.5009
+    "acc_jerk_max",                # Rank 7:  |coef|=0.4956
+    "acc_magnitude_skewness",      # Rank 8:  |coef|=0.4488
+    "acc_jerk_mean",               # Rank 9:  |coef|=0.3943
+    "acc_y_std",                   # Rank 10: |coef|=0.3919
+    "acc_x_std",                   # Rank 11: |coef|=0.3261
+    "acc_magnitude_mean",          # Rank 12: |coef|=0.3160
+    "acc_ima",                     # Rank 13: |coef|=0.3160
+    "acc_magnitude_kurtosis",      # Rank 14: |coef|=0.2645
+    "acc_jerk_energy",             # Rank 15: |coef|=0.2370
 ]
+
+# ❌ REMOVED FEATURES (26 features removed from original 41):
+# Removed for low importance:
+#   - acc_magnitude_min, acc_magnitude_range, acc_magnitude_median, acc_magnitude_iqr
+#   - acc_z_std, acc_energy, acc_jerk_std
+#   - acc_dominant_freq, acc_freq_ratio_low, acc_freq_ratio_activity
+#   - acc_spectral_energy
+#   - acc_psd_stillness, acc_psd_slow_move, acc_psd_walking, acc_psd_running, acc_psd_total
+#   - is_stationary, is_walking, is_high_activity, activity_score, motion_flag
+#
+# Removed as confounding variables (experimental artifacts):
+#   - tilt_x, tilt_y, tilt_z, roll_angle, pitch_angle
+#   These captured "sitting vs cycling" from lab protocol, not true stress
+
+# Old feature list (41 features) - DEPRECATED
+# STRESS_ACC_FEATURES = [
+#     # Movement variability
+#     "acc_magnitude_mean", "acc_magnitude_std", "acc_magnitude_min",
+#     "acc_magnitude_max", "acc_magnitude_range", "acc_magnitude_median",
+#     "acc_magnitude_iqr", "acc_x_std", "acc_y_std", "acc_z_std",
+#     
+#     # Activity level
+#     "acc_sma", "acc_ima", "acc_energy",
+#     
+#     # Movement patterns
+#     "acc_zcr", "acc_magnitude_skewness", "acc_magnitude_kurtosis",
+#     
+#     # Jerk (stress indicators)
+#     "acc_jerk_mean", "acc_jerk_std", "acc_jerk_max", "acc_jerk_energy",
+#     
+#     # Posture/tilt (activity classification)
+#     "tilt_x", "tilt_y", "tilt_z", "roll_angle", "pitch_angle",
+#     
+#     # Frequency domain (activity classification)
+#     "acc_dominant_freq", "acc_dominant_freq_power",
+#     "acc_freq_ratio_low", "acc_freq_ratio_activity",
+#     "acc_spectral_energy", "acc_spectral_entropy",
+#     
+#     # PSD bands (activity classification)
+#     "acc_psd_stillness", "acc_psd_slow_move", "acc_psd_walking",
+#     "acc_psd_running", "acc_psd_total",
+#     
+#     # Activity classification
+#     "is_stationary", "is_walking", "is_high_activity", "activity_score",
+#     
+#     # Motion flag
+#     "motion_flag",
+# ]
 
 
 if __name__ == "__main__":
@@ -527,17 +609,17 @@ if __name__ == "__main__":
         ("RUNNING (exercise, not stress)", run_x, run_y, run_z),
     ]
     
-    print(f"\n{'Scenario':<35} {'Std':>8} {'Jerk':>8} {'DomFreq':>8} {'Stationary':>10} {'Walking':>8} {'HighAct':>8}")
-    print("-" * 95)
+    print(f"\n{'Scenario':<35} {'Std':>8} {'Jerk':>8} {'DomFreqPwr':>11} {'Entropy':>8}")
+    print("-" * 80)
     
     for name, x, y, z in scenarios:
         f = extractor.extract_activity_features(x, y, z)
-        print(f"{name:<35} {f['acc_magnitude_std']:>8.3f} {f['acc_jerk_mean']:>8.3f} "
-              f"{f['acc_dominant_freq']:>8.2f} {f['is_stationary']:>10} "
-              f"{f['is_walking']:>8} {f['is_high_activity']:>8}")
+        print(f"{name:<35} {f.get('acc_magnitude_std', 0):>8.3f} {f.get('acc_jerk_mean', 0):>8.3f} "
+              f"{f.get('acc_dominant_freq_power', 0):>11.3f} {f.get('acc_spectral_entropy', 0):>8.3f}")
     
     print("\n" + "="*60)
-    print(f"Total features: {len(STRESS_ACC_FEATURES)}")
-    print("\n✅ Features help distinguish:")
-    print("   - Emotional stress (sitting + fidgeting)")
-    print("   - Physical activity (walking/running + rhythmic motion)")
+    print(f"Total features: {len(STRESS_ACC_FEATURES)} (reduced from 41)")
+    print("\n✅ Feature selection applied:")
+    print("   - Kept top 15 features based on LR model importance")
+    print("   - Removed posture features (confounding variables)")
+    print("   - Removed redundant statistical features")
