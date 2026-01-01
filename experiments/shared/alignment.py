@@ -185,17 +185,20 @@ def resample_signal_scipy(timestamps: np.ndarray,
 
 def downsample_mean(df: pd.DataFrame, 
                     value_col: str,
-                    time_grid: pd.DatetimeIndex) -> np.ndarray:
+                    time_grid: pd.DatetimeIndex,
+                    resample_period: str = "1S",
+                    tolerance_sec: float = 1.0) -> np.ndarray:
     """
-    Downsample high-frequency signal to 1Hz using mean aggregation.
+    Downsample high-frequency signal using mean aggregation.
     
-    For each second in the time grid, takes the mean of all samples
-    that fall within that second.
+    Takes the mean of all samples that fall within each time period.
     
     Args:
         df: DataFrame with 'timestamp' and value column
         value_col: Name of the value column
-        time_grid: Target 1Hz time grid
+        time_grid: Target time grid
+        resample_period: Pandas frequency string (e.g., "1S" for 1Hz, "250ms" for 4Hz)
+        tolerance_sec: Tolerance in seconds for timestamp matching
     
     Returns:
         Downsampled values aligned to time grid
@@ -207,9 +210,9 @@ def downsample_mean(df: pd.DataFrame,
     df = df.copy()
     df = df.set_index("timestamp")
     
-    # Resample to 1 second, taking mean
+    # Resample using specified period, taking mean
     try:
-        resampled = df[value_col].resample("1S").mean()
+        resampled = df[value_col].resample(resample_period).mean()
         
         # Align to our time grid
         result = np.full(len(time_grid), np.nan)
@@ -217,9 +220,9 @@ def downsample_mean(df: pd.DataFrame,
             if t in resampled.index:
                 result[i] = resampled.loc[t]
             else:
-                # Find nearest timestamp within 1 second
+                # Find nearest timestamp within tolerance
                 time_diff = np.abs((resampled.index - t).total_seconds())
-                if len(time_diff) > 0 and time_diff.min() < 1.0:
+                if len(time_diff) > 0 and time_diff.min() < tolerance_sec:
                     nearest_idx = time_diff.argmin()
                     result[i] = resampled.iloc[nearest_idx]
         
@@ -284,51 +287,68 @@ def forward_fill_signal(df: pd.DataFrame,
     return result
 
 
-def align_to_1hz(signals: Dict[str, Optional[pd.DataFrame]],
-                 start_time: pd.Timestamp,
-                 end_time: pd.Timestamp) -> pd.DataFrame:
+def align_signals(signals: Dict[str, Optional[pd.DataFrame]],
+                  start_time: pd.Timestamp,
+                  end_time: pd.Timestamp,
+                  target_hz: float = 4.0) -> pd.DataFrame:
     """
-    Align all modalities to a 1Hz common time grid.
+    Align all modalities to a common time grid at specified sampling rate.
     
     Strategy:
-    - heatflux: already 1Hz, use directly
-    - acc (~32Hz): downsample to 1Hz using mean per second
-    - hr: use pre-extracted 1Hz HR from HeartPy (NOT raw PPG!)
+    - heatflux (1Hz): upsample or match to target rate using interpolation
+    - acc (~32Hz): downsample to target rate using mean aggregation
+    - hr: interpolate from pre-extracted 1Hz HR to target rate
     - emography: DISABLED (too low sampling rate ~0.017Hz)
     
     Args:
         signals: Dictionary of loaded signal DataFrames
         start_time: Start of alignment window
         end_time: End of alignment window
+        target_hz: Target sampling rate in Hz (default: 4.0 Hz)
     
     Returns:
         DataFrame with columns: timestamp, acc_x, acc_y, acc_z, acc_magnitude,
-                               skin_temp, heatflux, cbt, pulse_rate, hr_bpm
+                               skin_temp, heatflux, cbt, pulse_rate, hr_bpm, rmssd
     """
-    # Create 1Hz time grid
-    time_grid = create_time_grid(start_time, end_time, freq="1S")
+    # Calculate frequency string for pandas (e.g., "250ms" for 4 Hz)
+    period_ms = int(1000 / target_hz)
+    freq_str = f"{period_ms}ms"
+    
+    # Create time grid at target frequency
+    time_grid = create_time_grid(start_time, end_time, freq=freq_str)
     
     aligned = pd.DataFrame({"timestamp": time_grid})
     
-    # --- Align heatflux data (already 1Hz) ---
+    # Tolerance for timestamp matching (half the sampling period)
+    tolerance_sec = 1.0 / (2.0 * target_hz)
+    
+    # --- Align heatflux data (1Hz -> target_hz) ---
     hf_df = signals.get("heatflux")
     if hf_df is not None and len(hf_df) > 0:
-        # These columns are at 1Hz, just need to match timestamps
-        for col in ["skin_temp", "heatflux", "cbt", "pulse_rate"]:
-            if col in hf_df.columns:
-                aligned[col] = downsample_mean(hf_df, col, time_grid)
-        
-        # # Also get accelerometer from heatflux if available
-        # for col in ["acc_x", "acc_y", "acc_z"]:
-        #     if col in hf_df.columns:
-        #         aligned[f"hf_{col}"] = downsample_mean(hf_df, col, time_grid)
+        if target_hz <= 1.0:
+            # Downsample or match
+            for col in ["skin_temp", "heatflux", "cbt", "pulse_rate"]:
+                if col in hf_df.columns:
+                    aligned[col] = downsample_mean(hf_df, col, time_grid, 
+                                                   resample_period=freq_str,
+                                                   tolerance_sec=tolerance_sec)
+        else:
+            # Upsample using interpolation for higher frequencies
+            for col in ["skin_temp", "heatflux", "cbt", "pulse_rate"]:
+                if col in hf_df.columns:
+                    hf_ts = hf_df["timestamp"].values.astype('datetime64[ns]').astype(float)
+                    grid_ts = time_grid.values.astype('datetime64[ns]').astype(float)
+                    aligned[col] = resample_signal_scipy(hf_ts, hf_df[col].values, 
+                                                        grid_ts, method="linear")
     
-    # --- Align accelerometer (~32Hz -> 1Hz) ---
+    # --- Align accelerometer (~32Hz -> target_hz) ---
     acc_df = signals.get("acc")
     if acc_df is not None and len(acc_df) > 0:
         for col in ["acc_x", "acc_y", "acc_z"]:
             if col in acc_df.columns:
-                aligned[col] = downsample_mean(acc_df, col, time_grid)
+                aligned[col] = downsample_mean(acc_df, col, time_grid,
+                                              resample_period=freq_str,
+                                              tolerance_sec=tolerance_sec)
         
         # Calculate magnitude
         if all(c in aligned.columns for c in ["acc_x", "acc_y", "acc_z"]):
@@ -338,53 +358,103 @@ def align_to_1hz(signals: Dict[str, Optional[pd.DataFrame]],
                 aligned["acc_z"]**2
             )
     
-    # --- Align HR from HeartPy (already at 1Hz) ---
-    # This is much better than downsampling raw PPG from 64Hz to 1Hz!
+    # --- Align HR from HeartPy (1Hz -> target_hz) ---
     subject_id = signals.get("subject_id")
     if subject_id:
         hr_df = get_hr_for_subject(subject_id)
         if hr_df is not None and len(hr_df) > 0:
-            # Merge HR data with time grid
-            hr_values = np.full(len(time_grid), np.nan)
-            rmssd_values = np.full(len(time_grid), np.nan)
+            # Interpolate HR data to target frequency
+            hr_ts = hr_df["timestamp"].values.astype('datetime64[ns]').astype(float)
+            grid_ts = time_grid.values.astype('datetime64[ns]').astype(float)
             
-            # Convert timestamps for matching
-            hr_df_ts = hr_df["timestamp"].values.astype('datetime64[ns]')
-            grid_ts = time_grid.values.astype('datetime64[ns]')
+            aligned["hr_bpm"] = resample_signal_scipy(hr_ts, hr_df["hr_bpm"].values,
+                                                     grid_ts, method="linear")
             
-            for i, t in enumerate(grid_ts):
-                # Find matching timestamp (within 1 second)
-                time_diff = np.abs((hr_df_ts - t).astype('timedelta64[s]').astype(float))
-                if len(time_diff) > 0:
-                    min_diff_idx = np.argmin(time_diff)
-                    if time_diff[min_diff_idx] <= 1.0:
-                        hr_values[i] = hr_df["hr_bpm"].iloc[min_diff_idx]
-                        if "rmssd" in hr_df.columns:
-                            rmssd_values[i] = hr_df["rmssd"].iloc[min_diff_idx]
-            
-            aligned["hr_bpm"] = hr_values
-            aligned["rmssd"] = rmssd_values
-    
-    # --- DISABLED: Raw PPG downsampling (destroys cardiac waveform) ---
-    # ppg_df = signals.get("ppg")
-    # if ppg_df is not None and len(ppg_df) > 0 and "value" in ppg_df.columns:
-    #     aligned["ppg_mean"] = downsample_mean(ppg_df, "value", time_grid)
-    #     # ppg_std calculation also disabled
-    
-    # --- DISABLED: EDA/Emography (too low sampling rate ~0.017Hz) ---
-    # The forward-filling creates artificial constant values which
-    # don't provide meaningful information for stress detection.
-    # eda_df = signals.get("emography")
-    # if eda_df is not None and len(eda_df) > 0:
-    #     eda_col = None
-    #     for col in eda_df.columns:
-    #         if "stress" in col.lower() or "skin" in col.lower():
-    #             eda_col = col
-    #             break
-    #     if eda_col:
-    #         aligned["eda_stress_skin"] = forward_fill_signal(eda_df, eda_col, time_grid)
+            if "rmssd" in hr_df.columns:
+                aligned["rmssd"] = resample_signal_scipy(hr_ts, hr_df["rmssd"].values,
+                                                        grid_ts, method="linear")
     
     return aligned
+
+
+# COMMENTED OUT: Original 1Hz alignment function (keep for backward compatibility)
+# def align_to_1hz(signals: Dict[str, Optional[pd.DataFrame]],
+#                  start_time: pd.Timestamp,
+#                  end_time: pd.Timestamp) -> pd.DataFrame:
+#     """
+#     Align all modalities to a 1Hz common time grid.
+#     
+#     Strategy:
+#     - heatflux: already 1Hz, use directly
+#     - acc (~32Hz): downsample to 1Hz using mean per second
+#     - hr: use pre-extracted 1Hz HR from HeartPy (NOT raw PPG!)
+#     - emography: DISABLED (too low sampling rate ~0.017Hz)
+#     
+#     Args:
+#         signals: Dictionary of loaded signal DataFrames
+#         start_time: Start of alignment window
+#         end_time: End of alignment window
+#     
+#     Returns:
+#         DataFrame with columns: timestamp, acc_x, acc_y, acc_z, acc_magnitude,
+#                                skin_temp, heatflux, cbt, pulse_rate, hr_bpm
+#     """
+#     # Create 1Hz time grid
+#     time_grid = create_time_grid(start_time, end_time, freq="1S")
+#     
+#     aligned = pd.DataFrame({"timestamp": time_grid})
+#     
+#     # --- Align heatflux data (already 1Hz) ---
+#     hf_df = signals.get("heatflux")
+#     if hf_df is not None and len(hf_df) > 0:
+#         # These columns are at 1Hz, just need to match timestamps
+#         for col in ["skin_temp", "heatflux", "cbt", "pulse_rate"]:
+#             if col in hf_df.columns:
+#                 aligned[col] = downsample_mean(hf_df, col, time_grid)
+#     
+#     # --- Align accelerometer (~32Hz -> 1Hz) ---
+#     acc_df = signals.get("acc")
+#     if acc_df is not None and len(acc_df) > 0:
+#         for col in ["acc_x", "acc_y", "acc_z"]:
+#             if col in acc_df.columns:
+#                 aligned[col] = downsample_mean(acc_df, col, time_grid)
+#         
+#         # Calculate magnitude
+#         if all(c in aligned.columns for c in ["acc_x", "acc_y", "acc_z"]):
+#             aligned["acc_magnitude"] = np.sqrt(
+#                 aligned["acc_x"]**2 + 
+#                 aligned["acc_y"]**2 + 
+#                 aligned["acc_z"]**2
+#             )
+#     
+#     # --- Align HR from HeartPy (already at 1Hz) ---
+#     # This is much better than downsampling raw PPG from 64Hz to 1Hz!
+#     subject_id = signals.get("subject_id")
+#     if subject_id:
+#         hr_df = get_hr_for_subject(subject_id)
+#         if hr_df is not None and len(hr_df) > 0:
+#             # Merge HR data with time grid
+#             hr_values = np.full(len(time_grid), np.nan)
+#             rmssd_values = np.full(len(time_grid), np.nan)
+#             
+#             # Convert timestamps for matching
+#             hr_df_ts = hr_df["timestamp"].values.astype('datetime64[ns]')
+#             grid_ts = time_grid.values.astype('datetime64[ns]')
+#             
+#             for i, t in enumerate(grid_ts):
+#                 # Find matching timestamp (within 1 second)
+#                 time_diff = np.abs((hr_df_ts - t).astype('timedelta64[s]').astype(float))
+#                 if len(time_diff) > 0:
+#                     min_diff_idx = np.argmin(time_diff)
+#                     if time_diff[min_diff_idx] <= 1.0:
+#                         hr_values[i] = hr_df["hr_bpm"].iloc[min_diff_idx]
+#                         if "rmssd" in hr_df.columns:
+#                             rmssd_values[i] = hr_df["rmssd"].iloc[min_diff_idx]
+#             
+#             aligned["hr_bpm"] = hr_values
+#             aligned["rmssd"] = rmssd_values
+#     
+#     return aligned
 
 
 if __name__ == "__main__":
@@ -410,11 +480,13 @@ if __name__ == "__main__":
         signals = load_raw_signals(subjects[0])
         start, end = get_experiment_time_range(signals)
         
-        print(f"\nAligning signals from {start} to {end}")
-        aligned = align_to_1hz(signals, start, end)
+        # Test 4 Hz alignment
+        print(f"\nAligning signals from {start} to {end} at 4 Hz")
+        aligned = align_signals(signals, start, end, target_hz=4.0)
         
         print(f"\nAligned DataFrame shape: {aligned.shape}")
         print(f"Columns: {list(aligned.columns)}")
+        print(f"Expected samples for 120s window: ~480 samples")
         print(f"\nSample of aligned data:")
         print(aligned.head(10))
         

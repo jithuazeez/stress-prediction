@@ -47,7 +47,7 @@ from torch.utils.data import DataLoader
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from shared.raw_loader import load_raw_signals, get_all_subjects, get_experiment_time_range
-from shared.alignment import align_to_1hz
+from shared.alignment import align_signals  # Using new 4 Hz alignment
 from shared.windowing import create_labeled_windows, parse_stress_events, compute_subject_stats
 from shared.evaluation import (
     evaluate_predictions, aggregate_fold_metrics,
@@ -90,7 +90,7 @@ def load_all_windows(config: Config, logger) -> Dict[str, List[Dict]]:
             subjects_failed += 1
             continue
         
-        aligned = align_to_1hz(signals, start, end)
+        aligned = align_signals(signals, start, end, target_hz=4.0)
         if aligned is None or len(aligned) == 0:
             subjects_failed += 1
             continue
@@ -413,10 +413,10 @@ def loso_cross_validation(windows_by_subject: Dict[str, List[Dict]],
             continue
         
         train_dataset = VitaStressTCNDataset(train_windows, config.target_label, 
-                                            seq_len=120, normalize=True, 
+                                            seq_len=480, normalize=True,  # 480 for 4 Hz
                                             normalization_mode="subject")
         test_dataset = VitaStressTCNDataset(test_windows, config.target_label,
-                                           seq_len=120, normalize=True,
+                                           seq_len=480, normalize=True,  # 480 for 4 Hz
                                            normalization_mode="subject")
         
         if len(train_dataset) == 0 or len(test_dataset) == 0:
@@ -733,21 +733,21 @@ def main():
         config,
         device,
         logger,
-        n_epochs=100,  # Increased from 50 to 100
-        batch_size=32,
+        n_epochs=100,
+        batch_size=16,  # Reduced from 32 due to 4× longer sequences
         learning_rate=1e-3,
-        threshold_method="geometric_mean",  # ✅ Use constrained G-mean with recall/FPR limits
-        min_recall=0.70,  # Constrained: min 75% recall
-        max_fpr=0.30,     # Constrained: max 25% FPR (min 75% specificity)
-        tcn_channels=[16, 16, 16, 16, 16, 16],  # Narrower channels
+        threshold_method="geometric_mean",
+        min_recall=0.70,
+        max_fpr=0.30,
+        tcn_channels=[16, 16, 16, 16, 16, 16],
         kernel_size=3,
-        dilations=[1, 2, 4, 8, 16, 32],  # Custom dilations for RF=127
+        dilations=[1, 2, 4, 8, 16, 32, 64, 128],  # Extended for 480 timesteps
         dropout=0.3,
         fc_hidden_dim=128,
-        use_last_timestep=True,  # Use last timestep instead of global pooling
-        loss_type="weighted_ce",  # 🔥 Use Focal Loss for class imbalance
-        focal_alpha=0.88,   # Weight for positive class (0.88 for 1:7 imbalance)
-        focal_gamma=2.0     # Standard focusing parameter
+        use_last_timestep=True,
+        loss_type="weighted_ce",
+        focal_alpha=0.88,
+        focal_gamma=2.0
     )
     
     # Log results

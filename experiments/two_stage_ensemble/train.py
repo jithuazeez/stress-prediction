@@ -51,7 +51,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 # Shared modules
 from shared.raw_loader import load_raw_signals, get_all_subjects, get_experiment_time_range
-from shared.alignment import align_to_1hz
+from shared.alignment import align_signals  # Using new 4 Hz alignment
 from shared.windowing import create_labeled_windows, parse_stress_events, compute_subject_stats
 from shared.evaluation import evaluate_predictions, aggregate_fold_metrics, save_results, save_predictions, plot_results
 from shared.config import DEFAULT_CONFIG, Config
@@ -112,8 +112,8 @@ def load_and_prepare_windows(config: Config, logger) -> Dict[str, List[Dict]]:
             failed += 1
             continue
         
-        # Align to 1Hz
-        aligned = align_to_1hz(signals, start, end)
+        # Align to 4Hz
+        aligned = align_signals(signals, start, end, target_hz=4.0)
         if aligned is None or len(aligned) == 0:
             failed += 1
             continue
@@ -234,7 +234,7 @@ def train_tcn_model(
     train_dataset = VitaStressTCNDataset(
         train_windows,
         config.target_label,
-        seq_len=120,
+        seq_len=480,  # 480 for 4 Hz
         normalize=True,
         normalization_mode="subject"
     )
@@ -247,7 +247,7 @@ def train_tcn_model(
         num_classes=2,
         num_channels=[16, 16, 16, 16, 16, 16],
         kernel_size=3,
-        dilations=[1, 2, 4, 8, 16, 32],
+        dilations=[1, 2, 4, 8, 16, 32, 64, 128],  # Extended for 480 timesteps
         dropout=0.3,
         fc_hidden_dim=128,
         use_last_timestep=True
@@ -319,7 +319,7 @@ def get_tcn_probabilities(
     dataset = VitaStressTCNDataset(
         windows,
         config.target_label,
-        seq_len=120,
+        seq_len=480,  # 480 for 4 Hz
         normalize=True,
         normalization_mode="subject"
     )

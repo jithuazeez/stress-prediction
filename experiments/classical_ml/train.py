@@ -29,7 +29,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 
 from shared.raw_loader import load_raw_signals, get_all_subjects, get_experiment_time_range
-from shared.alignment import align_to_1hz
+from shared.alignment import align_signals  # Using new 4 Hz alignment
 from shared.windowing import create_labeled_windows, parse_stress_events, compute_subject_stats
 from shared.evaluation import (
     evaluate_predictions, aggregate_fold_metrics, 
@@ -90,8 +90,8 @@ def process_subject(subject_folder: Path,
         logger.warning(f"Subject {subject_id[:8]}...: Could not determine time range - {e}")
         return None, subject_id
     
-    # Stage 1: Align to 1Hz for windowing
-    aligned = align_to_1hz(signals, start, end)
+    # Stage 1: Align to 4Hz for windowing (better frequency resolution)
+    aligned = align_signals(signals, start, end, target_hz=4.0)
     
     if aligned is None or len(aligned) == 0:
         logger.warning(f"Subject {subject_id[:8]}...: No aligned data")
