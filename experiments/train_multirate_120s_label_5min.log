@@ -725,3 +725,4 @@ Model parameters: 854,786
 2026-01-02 23:13:02 | [32mINFO[0m |   Training fold_0a73ef1b...
 2026-01-02 23:13:33 | [32mINFO[0m |     Epoch   1/100: Loss=0.6955, Recall=0.572, Precision=0.120, G-mean=0.485, BalAcc=0.492
 2026-01-02 23:17:05 | [32mINFO[0m |     Epoch  10/100: Loss=0.6758, Recall=0.585, Precision=0.118, G-mean=0.478, BalAcc=0.488
+2026-01-02 23:21:48 | [32mINFO[0m |     Epoch  20/100: Loss=0.8348, Recall=0.453, Precision=0.124, G-mean=0.498, BalAcc=0.500
