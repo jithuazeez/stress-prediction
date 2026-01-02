@@ -1,0 +1,224 @@
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│         RESPIRATORY RATE EXTRACTION FROM PPG - WORKFLOW             │
+└─────────────────────────────────────────────────────────────────────┘
+
+INPUT DATA
+═══════════════════════════════════════════════════════════════════════
+📁 Datasets/VitaStress/
+   └── [subject_folders]/
+       └── Empatica_E4/
+           └── ppg2_green_6.csv (64 Hz)
+           
+           [ Raw PPG Signal ]
+           ─────────────────
+           Timestamp | Value
+           ...         ...
+           (7,680 samples per 120s window)
+
+
+PROCESSING PIPELINE
+═══════════════════════════════════════════════════════════════════════
+
+┌──────────────────┐
+│  1. LOAD PPG     │  - Load subject's PPG data
+│     DATA         │  - Normalize timestamps
+└────────┬─────────┘  - Filter valid samples
+         │
+         ▼
+┌──────────────────┐
+│  2. CREATE       │  - Skip first N minutes
+│     WINDOWS      │  - Generate 120s windows
+└────────┬─────────┘  - Apply overlap if configured
+         │
+         ▼
+┌──────────────────┐
+│  3. QUALITY      │  - Check PPG coverage ≥50%
+│     CHECK        │  - Remove NaN/zeros
+└────────┬─────────┘  - Verify minimum length
+         │
+         ▼
+┌──────────────────┐
+│  4. SPLIT INTO   │  - Sub-window 1: 0-60s (3,840 samples)
+│     60s CHUNKS   │  - Sub-window 2: 60-120s (3,840 samples)
+└────────┬─────────┘
+         │
+         ▼
+┌──────────────────────────────────────────────────────┐
+│  5. RREST PROCESSING (per 60s sub-window)            │
+│                                                       │
+│  ┌──────────────┐    ┌─────────────┐    ┌─────────┐ │
+│  │  EHF: Remove │ -> │  PDt: Detect│ -> │   FPt:  │ │
+│  │  High Freq   │    │  PPG Peaks  │    │ Fiducial│ │
+│  │  Noise       │    │  (IMS)      │    │  Points │ │
+│  └──────────────┘    └─────────────┘    └────┬────┘ │
+│                                               │      │
+│  ┌──────────────┐    ┌─────────────┐    ┌────▼────┐ │
+│  │  ELF: Remove │ <- │  RS: Resample│ <- │   FMe:  │ │
+│  │  Low Freq    │    │  (Cubic+BP) │    │ Extract │ │
+│  │  Baseline    │    │             │    │ AM,FM,BW│ │
+│  └──────┬───────┘    └─────────────┘    └─────────┘ │
+│         │                                             │
+│         ▼                                             │
+│  ┌─────────────────────────────────────────────────┐ │
+│  │  ESTIMATE RR (Time-Domain Methods)              │ │
+│  │  - CtO: Count-orig (zero-crossings)             │ │
+│  │  - CtA: Count-advanced (peak detection)         │ │
+│  │  - PKS: Peak detection                          │ │
+│  │  - ZeX: Zero-crossing detection                 │ │
+│  │  - PZX: Peak + zero-crossing combined           │ │
+│  └─────────────────────────────────────────────────┘ │
+│         │                                             │
+│         ▼                                             │
+│  ┌─────────────────────────────────────────────────┐ │
+│  │  SMART FUSION                                    │ │
+│  │  - Combine estimates from AM, FM, BW             │ │
+│  │  - Reject outliers                               │ │
+│  │  - Take median of valid estimates                │ │
+│  │  → Final RR estimate for sub-window              │ │
+│  └─────────────────────────────────────────────────┘ │
+└───────────────────────────────────────────────────────┘
+         │
+         ▼
+┌──────────────────┐
+│  6. AGGREGATE    │  - Mean of 2 sub-window estimates
+│     TO 120s      │  - Std dev (if both succeeded)
+│     WINDOW       │  - Min, Max, Trend (diff)
+└────────┬─────────┘  - Quality score (0.0-1.0)
+         │
+         ▼
+
+
+OUTPUT DATA
+═══════════════════════════════════════════════════════════════════════
+📄 reports/rr_features_from_ppg.csv
+
+┌────────────┬────────────┬───────┬────────┬────────┬────────┬─────────┐
+│ subject_id │ window_start│ rr_mean│ rr_std │ rr_min │ rr_max │ rr_trend│
+├────────────┼────────────┼───────┼────────┼────────┼────────┼─────────┤
+│ e82b...    │ 2021-...   │ 16.5  │ 2.1    │ 14.8   │ 18.2   │ +1.7    │
+│ e82b...    │ 2021-...   │ 18.3  │ 1.5    │ 17.1   │ 19.5   │ +1.2    │
+│ ...        │ ...        │ ...   │ ...    │ ...    │ ...    │ ...     │
+└────────────┴────────────┴───────┴────────┴────────┴────────┴─────────┘
+
++ quality, n_sub_windows, ppg_coverage columns
+
+
+VALIDATION & ANALYSIS
+═══════════════════════════════════════════════════════════════════════
+┌─────────────────────┐  ┌──────────────────────┐  ┌────────────────┐
+│ 1. STATISTICS       │  │ 2. PHYSIOLOGICAL     │  │ 3. QUALITY     │
+│                     │  │    VALIDITY          │  │    ANALYSIS    │
+│ - Distribution      │  │                      │  │                │
+│ - Mean/Std/Range    │  │ Bradypnea    (<8)    │  │ High (>0.8):   │
+│ - Subject counts    │  │ Very Low    (8-12)   │  │   ~60-70%      │
+│                     │  │ Normal     (12-20) ✓ │  │ Medium (0.5-0.8)│
+│                     │  │ Elevated   (20-30) ✓ │  │ Low (<0.5)     │
+│                     │  │ High       (30-40)   │  │                │
+│                     │  │ Tachypnea   (>40)    │  │                │
+└─────────────────────┘  └──────────────────────┘  └────────────────┘
+
+┌─────────────────────┐  ┌──────────────────────┐
+│ 4. TEMPORAL         │  │ 5. VISUALIZATIONS    │
+│    PATTERNS         │  │                      │
+│                     │  │ - Feature distributions
+│ - RR over time      │  │ - Quality scatter    │
+│ - Quality trends    │  │ - Category boxplots  │
+│ - Subject examples  │  │ - Temporal plots     │
+└─────────────────────┘  └──────────────────────┘
+
+
+INTEGRATION WITH ML
+═══════════════════════════════════════════════════════════════════════
+
+┌────────────────────────────────────────────────────────────────────┐
+│  CLASSICAL ML (Logistic Regression)                               │
+│                                                                    │
+│  Existing Features          +         New RR Features             │
+│  ─────────────────                   ─────────────────            │
+│  - temperature_mean                  - rr_mean ← PRIMARY          │
+│  - temperature_std                   - rr_std  ← VARIABILITY      │
+│  - hr_mean                           - rr_max  ← PEAK STRESS      │
+│  - hr_std                            - rr_min  ← BASELINE         │
+│  - rmssd_mean                        - rr_trend ← DYNAMICS        │
+│  - rmssd_std                                                       │
+│  - acc_magnitude_mean                                              │
+│  - acc_magnitude_std                                               │
+│                                                                    │
+│  Expected F1-Score Improvement: +3-7%                             │
+│  (Respiratory rate is a strong stress biomarker)                  │
+└────────────────────────────────────────────────────────────────────┘
+
+
+FILES CREATED
+═══════════════════════════════════════════════════════════════════════
+📓 notebooks/extract_respiratory_rate.ipynb  (40 KB)  ← MAIN NOTEBOOK
+   - RRestMatlabWrapper class
+   - Extraction pipeline
+   - Comprehensive validation
+   - Visualization suite
+
+📄 notebooks/RR_EXTRACTION_README.md  (7.2 KB)  ← FULL DOCS
+   - Prerequisites
+   - Configuration details
+   - Troubleshooting
+   - Integration guide
+
+📄 notebooks/RR_EXTRACTION_QUICKREF.md  (3.1 KB)  ← QUICK START
+   - One-command launch
+   - Common fixes
+   - Expected results
+
+📄 notebooks/RR_EXTRACTION_SUMMARY.md  (7.4 KB)  ← THIS FILE
+   - Implementation overview
+   - Technical details
+   - Scientific rationale
+
+
+EXECUTION CHECKLIST
+═══════════════════════════════════════════════════════════════════════
+□ 1. Install Matlab Engine for Python (one-time setup)
+□ 2. Launch Jupyter notebook
+□ 3. Run all cells (45-90 minutes)
+□ 4. Validate output quality (check plots & statistics)
+□ 5. Review per-subject summary for outliers
+□ 6. Integrate features into classical_ml/train.py
+□ 7. Train model and compare F1-score with baseline
+□ 8. [Optional] Create RR time-series for TCN
+
+
+EXPECTED TIMELINE
+═══════════════════════════════════════════════════════════════════════
+Phase 1: Extraction        → 45-90 minutes (automated)
+Phase 2: Validation        → 5-10 minutes (review plots)
+Phase 3: Integration       → 15-30 minutes (code updates)
+Phase 4: Training          → 20-40 minutes (LOSO CV)
+Phase 5: Evaluation        → 5 minutes (compare metrics)
+                           ────────────────────────────
+Total:                       ~2-3 hours (mostly automated)
+
+
+KEY SUCCESS METRICS
+═══════════════════════════════════════════════════════════════════════
+✓ >85% physiologically valid windows (8-40 bpm)
+✓ >60% high quality extractions (score >0.8)
+✓ >70% good PPG coverage (>70% samples)
+✓ Clear stress differentiation (elevated vs normal RR)
+✓ F1-score improvement of +3-7% with RR features
+
+
+TROUBLESHOOTING
+═══════════════════════════════════════════════════════════════════════
+Issue: Matlab engine fails
+Fix:   Reinstall matlab.engine (see README)
+
+Issue: RRest not found
+Fix:   Check path: experiments/shared/RRest/RRest/RRest_v3.0/Algorithms/
+
+Issue: Low quality scores
+Fix:   Increase RREST_WINDOW_SEC to 90s or check PPG quality
+
+Issue: Many failed subjects
+Fix:   Run data_quality_analysis.ipynb first to identify good subjects
+```
+

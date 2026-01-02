@@ -736,10 +736,10 @@ def main():
         n_epochs=100,
         batch_size=16,  # Reduced from 32 due to 4× longer sequences
         learning_rate=1e-3,
-        threshold_method="geometric_mean",
+        threshold_method="constrained_gmean",
         min_recall=0.70,
         max_fpr=0.30,
-        tcn_channels=[16, 16, 16, 16, 16, 16],
+        tcn_channels=[16, 16, 16, 16, 16, 16, 16, 16],
         kernel_size=3,
         dilations=[1, 2, 4, 8, 16, 32, 64, 128],  # Extended for 480 timesteps
         dropout=0.3,

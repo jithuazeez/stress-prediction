@@ -642,3 +642,85 @@ Model parameters: 227,650
 2025-12-28 23:03:54 | [32mINFO[0m |     Epoch  50/100: Loss=0.3770, Recall=0.374, Precision=0.113, G-mean=0.471, BalAcc=0.484
 2025-12-28 23:04:02 | [32mINFO[0m |     Epoch  60/100: Loss=0.3658, Recall=0.330, Precision=0.135, G-mean=0.480, BalAcc=0.514
 2025-12-28 23:04:11 | [32mINFO[0m |     Epoch  70/100: Loss=0.3440, Recall=0.350, Precision=0.120, G-mean=0.471, BalAcc=0.492
+2026-01-02 23:09:40 | [32mINFO[0m | ======================================================================
+2026-01-02 23:09:40 | [32mINFO[0m |   MULTI-RATE LATE FUSION TRAINING
+2026-01-02 23:09:40 | [32mINFO[0m |   Started at: 2026-01-02 23:09:40
+2026-01-02 23:09:40 | [32mINFO[0m | ======================================================================
+2026-01-02 23:09:40 | [32mINFO[0m | Configuration:
+2026-01-02 23:09:40 | [32mINFO[0m |   Window: 120s
+2026-01-02 23:09:40 | [32mINFO[0m |   Horizon: 5 min
+2026-01-02 23:09:40 | [32mINFO[0m |   Target: label_5min
+2026-01-02 23:09:40 | [32mINFO[0m |   ACC samples: 3840 (3 channels at 32Hz)
+2026-01-02 23:09:40 | [32mINFO[0m |   Physio samples: 120 (5 channels at 1Hz)
+2026-01-02 23:09:40 | [32mINFO[0m |   Threshold method: geometric_mean (unconstrained, maximizes G-mean)
+2026-01-02 23:09:40 | [32mINFO[0m |   Channels: acc_x, acc_y, acc_z, skin_temp, heatflux, cbt, hr_bpm, rmssd
+2026-01-02 23:09:40 | [32mINFO[0m | Device: mps
+2026-01-02 23:09:40 | [32mINFO[0m | 
+--------------------------------------------------
+2026-01-02 23:09:40 | [32mINFO[0m | Loading data at native rates...
+2026-01-02 23:09:40 | [32mINFO[0m | --------------------------------------------------
+2026-01-02 23:09:55 | [32mINFO[0m | Loaded 1733 windows from 21 subjects
+2026-01-02 23:09:55 | [32mINFO[0m | 
+Model parameters: 377,282
+2026-01-02 23:09:55 | [32mINFO[0m | 
+============================================================
+2026-01-02 23:09:55 | [32mINFO[0m | LOSO CROSS-VALIDATION
+2026-01-02 23:09:55 | [32mINFO[0m | ============================================================
+2026-01-02 23:09:56 | [32mINFO[0m |   Class distribution: 203 positive, 1443 negative (ratio 1:7.1)
+2026-01-02 23:09:56 | [32mINFO[0m |   Using class weights (sklearn balanced): [0.5703, 4.0542]
+2026-01-02 23:09:56 | [32mINFO[0m |   Training fold_0a73ef1b...
+2026-01-02 23:10:15 | [32mINFO[0m | ======================================================================
+2026-01-02 23:10:15 | [32mINFO[0m |   MULTI-RATE LATE FUSION TRAINING
+2026-01-02 23:10:15 | [32mINFO[0m |   Started at: 2026-01-02 23:10:15
+2026-01-02 23:10:15 | [32mINFO[0m | ======================================================================
+2026-01-02 23:10:15 | [32mINFO[0m | Configuration:
+2026-01-02 23:10:15 | [32mINFO[0m |   Window: 120s
+2026-01-02 23:10:15 | [32mINFO[0m |   Horizon: 5 min
+2026-01-02 23:10:15 | [32mINFO[0m |   Target: label_5min
+2026-01-02 23:10:15 | [32mINFO[0m |   ACC samples: 3840 (3 channels at 32Hz)
+2026-01-02 23:10:15 | [32mINFO[0m |   Physio samples: 120 (5 channels at 1Hz)
+2026-01-02 23:10:15 | [32mINFO[0m |   Threshold method: geometric_mean (unconstrained, maximizes G-mean)
+2026-01-02 23:10:15 | [32mINFO[0m |   Channels: acc_x, acc_y, acc_z, skin_temp, heatflux, cbt, hr_bpm, rmssd
+2026-01-02 23:10:15 | [32mINFO[0m | Device: mps
+2026-01-02 23:10:15 | [32mINFO[0m | 
+--------------------------------------------------
+2026-01-02 23:10:15 | [32mINFO[0m | Loading data at native rates...
+2026-01-02 23:10:15 | [32mINFO[0m | --------------------------------------------------
+2026-01-02 23:10:30 | [32mINFO[0m | Loaded 1733 windows from 21 subjects
+2026-01-02 23:10:30 | [32mINFO[0m | 
+Model parameters: 377,282
+2026-01-02 23:10:30 | [32mINFO[0m | 
+============================================================
+2026-01-02 23:10:30 | [32mINFO[0m | LOSO CROSS-VALIDATION
+2026-01-02 23:10:30 | [32mINFO[0m | ============================================================
+2026-01-02 23:10:30 | [32mINFO[0m |   Class distribution: 203 positive, 1443 negative (ratio 1:7.1)
+2026-01-02 23:10:30 | [32mINFO[0m |   Using class weights (sklearn balanced): [0.5703, 4.0542]
+2026-01-02 23:10:31 | [32mINFO[0m |   Training fold_0a73ef1b...
+2026-01-02 23:12:46 | [32mINFO[0m | ======================================================================
+2026-01-02 23:12:46 | [32mINFO[0m |   MULTI-RATE LATE FUSION TRAINING
+2026-01-02 23:12:46 | [32mINFO[0m |   Started at: 2026-01-02 23:12:46
+2026-01-02 23:12:46 | [32mINFO[0m | ======================================================================
+2026-01-02 23:12:46 | [32mINFO[0m | Configuration:
+2026-01-02 23:12:46 | [32mINFO[0m |   Window: 120s
+2026-01-02 23:12:46 | [32mINFO[0m |   Horizon: 5 min
+2026-01-02 23:12:46 | [32mINFO[0m |   Target: label_5min
+2026-01-02 23:12:46 | [32mINFO[0m |   ACC samples: 3840 (3 channels at 32Hz)
+2026-01-02 23:12:46 | [32mINFO[0m |   Physio samples: 120 (5 channels at 1Hz)
+2026-01-02 23:12:46 | [32mINFO[0m |   Threshold method: geometric_mean (unconstrained, maximizes G-mean)
+2026-01-02 23:12:46 | [32mINFO[0m |   Channels: acc_x, acc_y, acc_z, skin_temp, heatflux, cbt, hr_bpm, rmssd
+2026-01-02 23:12:46 | [32mINFO[0m | Device: mps
+2026-01-02 23:12:46 | [32mINFO[0m | 
+--------------------------------------------------
+2026-01-02 23:12:46 | [32mINFO[0m | Loading data at native rates...
+2026-01-02 23:12:46 | [32mINFO[0m | --------------------------------------------------
+2026-01-02 23:13:01 | [32mINFO[0m | Loaded 1733 windows from 21 subjects
+2026-01-02 23:13:01 | [32mINFO[0m | 
+Model parameters: 854,786
+2026-01-02 23:13:01 | [32mINFO[0m | 
+============================================================
+2026-01-02 23:13:01 | [32mINFO[0m | LOSO CROSS-VALIDATION
+2026-01-02 23:13:01 | [32mINFO[0m | ============================================================
+2026-01-02 23:13:02 | [32mINFO[0m |   Class distribution: 203 positive, 1443 negative (ratio 1:7.1)
+2026-01-02 23:13:02 | [32mINFO[0m |   Using class weights (sklearn balanced): [0.5703, 4.0542]
+2026-01-02 23:13:02 | [32mINFO[0m |   Training fold_0a73ef1b...
+2026-01-02 23:13:33 | [32mINFO[0m |     Epoch   1/100: Loss=0.6955, Recall=0.572, Precision=0.120, G-mean=0.485, BalAcc=0.492

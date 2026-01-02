@@ -1,16 +1,18 @@
 """
-Multi-Rate Late Fusion Model.
+Multi-Rate Late Fusion Model with TCN Encoders.
 
-Combines embeddings from modality-specific encoders using late fusion.
+UPDATED: Now uses TCN-based encoders instead of CNN encoders for better temporal modeling.
+
+Combines embeddings from modality-specific TCN encoders using late fusion.
 Same 8 channels as MOMENT but at native rates:
-1. Each encoder processes its signal at native rate
+1. Each TCN encoder processes its signal at native rate (with dilated causal convolutions)
 2. Embeddings are concatenated
 3. Fusion layer combines information
 4. Classifier predicts stress
 
 Architecture:
-    ACC (32Hz, 3ch) → ACCEncoder → 128-d  →  Concat (256-d) → Fusion → Classifier
-    Physio (1Hz, 5ch) → PhysioEncoder → 128-d
+    ACC (32Hz, 3ch) → TCN Encoder → 128-d  →  Concat (256-d) → Fusion → Classifier
+    Physio (1Hz, 5ch) → TCN Encoder → 128-d
 
 Note: PPG is disabled. Using HR and HRV (RMSSD) instead.
 """

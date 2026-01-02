@@ -1,0 +1,91 @@
+================================================================================
+RREST DIRECTORY STRUCTURE - WHERE FILES ARE SAVED
+================================================================================
+
+INPUT FILE (created by Python):
+--------------------------------
+/tmp/rrest_temp_data/temp_ppg_data_data.mat
+    └── Contains: data(1).ppg.v, data(1).ppg.fs, data(1).group
+
+
+WHAT RREST CREATES (when you call RRest('temp_ppg_data')):
+-----------------------------------------------------------
+/tmp/rrest_temp_data/
+└── temp_ppg_data/                           ← Dataset folder
+    └── Analysis_files/                      ← Created by RRest
+        ├── Data_for_Analysis/               ← Input data copied here
+        │   └── temp_ppg_data_data.mat
+        │
+        ├── Component_Data/                  ← RESULTS SAVED HERE! ✓
+        │   ├── temp_ppg_data_win_data.mat   ← This is what we need!
+        │   ├── up.mat                       ← Universal parameters
+        │   └── [other intermediate files]
+        │
+        └── Results/                         ← Final results folder
+            └── [final analysis outputs]
+
+
+THE BUG:
+--------
+❌ Code was looking here:
+   /tmp/rrest_temp_data/temp_ppg_data_win_data.mat
+   (WRONG - file doesn't exist at this location)
+
+✓  File is actually here:
+   /tmp/rrest_temp_data/temp_ppg_data/Analysis_files/Component_Data/temp_ppg_data_win_data.mat
+   (CORRECT - subdirectory structure)
+
+
+WHY THIS HAPPENS:
+-----------------
+setup_universal_params.m creates these paths:
+
+Line 75: up.paths.root_data_folder = [root_folder, dataset_name, slash];
+         → /tmp/rrest_temp_data/temp_ppg_data/
+
+Line 76-77: up.paths.data_save_folder = [root_data_folder, 'Analysis_files', 
+            slash, 'Component_Data', slash];
+         → /tmp/rrest_temp_data/temp_ppg_data/Analysis_files/Component_Data/
+
+Line 196: up.paths.filenames.win_data = 'win_data';
+         → Final file: temp_ppg_data_win_data.mat
+
+
+OUTPUT FILE CONTENTS:
+---------------------
+temp_ppg_data_win_data.mat contains:
+    - win_data.rrEst        : Matrix of RR estimates
+                              Column 1: Fused RR estimate
+                              Other columns: Individual algorithm estimates
+    - win_data.t            : Window timing information
+    - win_data.paramSet     : Parameters used
+
+
+HOW TO FIX IN CODE:
+-------------------
+WRONG:
+    results_file = temp_path / f"{dataset_name}_win_data.mat"
+
+CORRECT:
+    results_file = (temp_path / dataset_name / "Analysis_files" / 
+                   "Component_Data" / f"{dataset_name}_win_data.mat")
+
+
+VERIFICATION COMMAND:
+---------------------
+After running RRest, check if file exists:
+
+    ls -la /tmp/rrest_temp_data/temp_ppg_data/Analysis_files/Component_Data/
+
+You should see:
+    temp_ppg_data_win_data.mat  ← This is what we need!
+
+
+REFERENCE:
+----------
+- setup_universal_params.m: Lines 75-77, 152-153, 196
+- RRest wiki: Input-Data.md, Getting-Started.md
+- Fixed implementation: extract_rr_fixed.py
+
+================================================================================
+
