@@ -68,6 +68,7 @@ def load_all_windows(config: Config, logger) -> Dict[str, List[Dict]]:
     """Load and process all subjects, returning windows by subject."""
     subjects = get_all_subjects(config.data_path)
     windows_by_subject = {}
+    hr_timeseries_data = []  # Collect HR time series for saving
     
     logger.info(f"Loading {len(subjects)} subjects...")
     
@@ -121,8 +122,24 @@ def load_all_windows(config: Config, logger) -> Dict[str, List[Dict]]:
             overlap_ratio=config.overlap_ratio,
             horizons_minutes=config.horizons_minutes,
             skip_first_minutes=config.skip_first_minutes,
-            subject_stats=subject_stats
+            subject_stats=subject_stats,
+            ppg_data=signals.get("ppg"),  # Pass raw PPG for HR extraction
+            target_hz=4.0
         )
+        
+        # Extract HR time series from windows for saving
+        if windows:
+            for window in windows:
+                window_data = window.get("window_data")
+                if window_data is not None and "hr_bpm" in window_data.columns:
+                    # Extract HR data with timestamps
+                    hr_subset = window_data[["timestamp", "hr_bpm", "rmssd"]].copy()
+                    hr_subset["subject_id"] = subject_id
+                    hr_subset["window_id"] = window.get("window_id", -1)
+                    
+                    # Only save if HR data is valid (not all NaN)
+                    if not hr_subset["hr_bpm"].isna().all():
+                        hr_timeseries_data.append(hr_subset)
         
         if windows:
             windows_by_subject[subject_id] = windows
@@ -145,9 +162,23 @@ def load_all_windows(config: Config, logger) -> Dict[str, List[Dict]]:
         logger.info(f"  Accepted windows:  {total_windows} ({acceptance_rate:.1f}%)")
         logger.info(f"  Rejected windows:  {total_rejected_windows} ({rejection_rate:.1f}%)")
         if total_rejected_windows > 0:
-            logger.info(f"  Rejection reason:  Insufficient data (<50% samples in window)")
+            logger.info(f"  Rejection reason:  Insufficient data (<50% samples in window) or HR extraction failed")
     if subjects_failed > 0:
         logger.info(f"  Subjects failed:   {subjects_failed} (no data/alignment issues)")
+    
+    # Save extracted HR time series to CSV
+    if hr_timeseries_data:
+        hr_df = pd.concat(hr_timeseries_data, ignore_index=True)
+        reports_dir = Path(__file__).parent.parent.parent / "reports"
+        reports_dir.mkdir(parents=True, exist_ok=True)
+        hr_output_path = reports_dir / "hr_extracted_4hz.csv"
+        hr_df.to_csv(hr_output_path, index=False)
+        logger.info(f"Saved extracted 4Hz HR time series to: {hr_output_path}")
+        logger.info(f"  Total HR samples: {len(hr_df)}")
+        logger.info(f"  Subjects with HR: {hr_df['subject_id'].nunique()}")
+        logger.info(f"  Windows with HR: {len(hr_timeseries_data)}")
+    else:
+        logger.warning("No HR time series data extracted to save")
     
     return windows_by_subject
 

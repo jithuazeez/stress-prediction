@@ -172,7 +172,7 @@ def resample_signal_scipy(timestamps: np.ndarray,
         f = interp1d(
             valid_ts, 
             valid_vals, 
-            kind=method, 
+            kind="linear", 
             bounds_error=False, 
             fill_value=np.nan
         )
@@ -203,33 +203,52 @@ def downsample_mean(df: pd.DataFrame,
     Returns:
         Downsampled values aligned to time grid
     """
+    # if df is None or len(df) == 0:
+    #     return np.full(len(time_grid), np.nan)
+    
+    # # Set timestamp as index
+    # df = df.copy()
+    # df = df.set_index("timestamp")
+    
+    # # Resample using specified period, taking mean
+    # try:
+    #     resampled = df[value_col].resample(resample_period).mean()
+        
+    #     # Align to our time grid
+    #     result = np.full(len(time_grid), np.nan)
+    #     for i, t in enumerate(time_grid):
+    #         if t in resampled.index:
+    #             result[i] = resampled.loc[t]
+    #         else:
+    #             # Find nearest timestamp within tolerance
+    #             time_diff = np.abs((resampled.index - t).total_seconds())
+    #             if len(time_diff) > 0 and time_diff.min() < tolerance_sec:
+    #                 nearest_idx = time_diff.argmin()
+    #                 result[i] = resampled.iloc[nearest_idx]
+        
+    #     return result
+    # except Exception as e:
+    #     print(f"Warning: Downsample failed for {value_col}: {e}")
+    #     return np.full(len(time_grid), np.nan)
     if df is None or len(df) == 0:
         return np.full(len(time_grid), np.nan)
     
-    # Set timestamp as index
+    if value_col not in df.columns:
+        return np.full(len(time_grid), np.nan)
+
     df = df.copy()
     df = df.set_index("timestamp")
-    
-    # Resample using specified period, taking mean
-    try:
-        resampled = df[value_col].resample(resample_period).mean()
-        
-        # Align to our time grid
-        result = np.full(len(time_grid), np.nan)
-        for i, t in enumerate(time_grid):
-            if t in resampled.index:
-                result[i] = resampled.loc[t]
-            else:
-                # Find nearest timestamp within tolerance
-                time_diff = np.abs((resampled.index - t).total_seconds())
-                if len(time_diff) > 0 and time_diff.min() < tolerance_sec:
-                    nearest_idx = time_diff.argmin()
-                    result[i] = resampled.iloc[nearest_idx]
-        
-        return result
-    except Exception as e:
-        print(f"Warning: Downsample failed for {value_col}: {e}")
-        return np.full(len(time_grid), np.nan)
+
+    resampled = df[value_col].resample(resample_period).mean()
+
+    # Reindex to the desired grid with nearest neighbour + tolerance
+    aligned = resampled.reindex(
+        time_grid, 
+        method="nearest", 
+        tolerance=pd.Timedelta(seconds=tolerance_sec)
+    )
+
+    return aligned.to_numpy()
 
 
 def forward_fill_signal(df: pd.DataFrame,
@@ -298,7 +317,6 @@ def align_signals(signals: Dict[str, Optional[pd.DataFrame]],
     - heatflux (1Hz): upsample or match to target rate using interpolation
     - acc (~32Hz): downsample to target rate using mean aggregation
     - hr: interpolate from pre-extracted 1Hz HR to target rate
-    - emography: DISABLED (too low sampling rate ~0.017Hz)
     
     Args:
         signals: Dictionary of loaded signal DataFrames

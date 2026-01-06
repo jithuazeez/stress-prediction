@@ -22,9 +22,9 @@ HRV_FEATURE_NAMES = [
     'hrv_mean_rr',      # Mean RR interval
     'hrv_sdnn',         # Standard deviation of RR intervals
     'hrv_rmssd',        # Root mean square of successive differences
-    # 'hrv_pnn50',        # Percentage of successive RR differences > 50ms
-    # 'hrv_pnn20',        # Percentage of successive RR differences > 20ms
-    # 'hrv_sdsd',         # Standard deviation of successive differences
+    'hrv_pnn50',        # Percentage of successive RR differences > 50ms
+    'hrv_pnn20',        # Percentage of successive RR differences > 20ms
+    'hrv_sdsd',         # Standard deviation of successive differences
 ]
 # Excluded features:
 # - hrv_lf, hrv_hf, hrv_lf_hf_ratio: Frequency-domain (unreliable for 120s windows, need 5+ min)
@@ -217,6 +217,116 @@ def extract_hrv_features(
             features['working_data'] = None
     
     return features
+
+
+def extract_hr_timeseries_from_ppg(ppg_df: pd.DataFrame, 
+                                    start_time: pd.Timestamp,
+                                    end_time: pd.Timestamp,
+                                    sample_rate: float = 64.0) -> Dict[str, np.ndarray]:
+    """
+    Extract instantaneous HR time series from PPG using HeartPy (reuses existing logic).
+    
+    Returns HR values at detected peak locations (not aligned to grid yet).
+    Alignment to target frequency happens in align_signals().
+    
+    Args:
+        ppg_df: DataFrame with 'timestamp', 'value', and optional 'quality' columns
+        start_time: Start of time range
+        end_time: End of time range
+        sample_rate: PPG sampling rate in Hz (default 64Hz)
+    
+    Returns:
+        Dictionary with 'timestamps', 'hr_bpm', 'rmssd' arrays at irregular intervals
+    """
+    if ppg_df is None or len(ppg_df) == 0:
+        return {'timestamps': np.array([]), 'hr_bpm': np.array([]), 'rmssd': np.array([])}
+    
+    # Filter to time range
+    mask = (ppg_df['timestamp'] >= start_time) & (ppg_df['timestamp'] <= end_time)
+    ppg_segment = ppg_df.loc[mask].copy()
+    
+    if len(ppg_segment) < int(10 * sample_rate):
+        return {'timestamps': np.array([]), 'hr_bpm': np.array([]), 'rmssd': np.array([])}
+    
+    # Get PPG values and timestamps
+    ppg_values = ppg_segment['value'].values.astype(float)
+    ppg_timestamps = ppg_segment['timestamp'].values
+    
+    # Get quality mask if available
+    quality_mask = None
+    if 'quality' in ppg_segment.columns:
+        quality_mask = ppg_segment['quality'].values >= 3
+    
+    # Preprocess (reuse existing function)
+    # preprocessed, success = preprocess_ppg_segment(ppg_values, sample_rate, quality_mask)
+    preprocessed =  hp.filter_signal(ppg_values, 
+                                     cutoff=[0.5, 4.0], 
+                                     sample_rate=sample_rate, 
+                                     order=3, 
+                                     filtertype="bandpass")
+        
+    # if not success or len(preprocessed) == 0:
+        # return {'timestamps': np.array([]), 'hr_bpm': np.array([]), 'rmssd': np.array([])}
+    
+    # Process with HeartPy - reuse existing logic!
+    try:
+        working_data, measures = hp.process(
+            preprocessed,
+            sample_rate=sample_rate,
+            high_precision=True,
+            clean_rr=True,
+            clean_rr_method='quotient-filter',
+            bpmmin=40,
+            bpmmax=220
+        )
+       
+
+        
+        
+        # Extract what HeartPy already computed
+        peak_indices = np.array(working_data.get('peaklist', []))
+        rr_intervals = np.array(working_data.get('RR_list_cor', working_data.get('RR_list', [])))
+        
+        if len(peak_indices) < 2 or len(rr_intervals) < 1:
+            return {'timestamps': np.array([]), 'hr_bpm': np.array([]), 'rmssd': np.array([])}
+        
+        # Convert peak indices to timestamps (indices are sample numbers)
+        peak_times = ppg_timestamps[0] + pd.to_timedelta(peak_indices / sample_rate, unit='s')
+        
+        # Convert RR intervals to instantaneous HR (HeartPy already cleaned them!)
+        hr_at_peaks = 60000.0 / rr_intervals  # RR in ms → BPM (rr_intervals already numpy array)
+        
+        # Calculate rolling RMSSD (5-beat window)
+        rmssd_at_peaks = []
+        for i in range(len(rr_intervals)):
+            if i >= 1:
+                window_size = min(5, i + 1)
+                start_idx = max(0, i - window_size + 1)
+                rr_window = rr_intervals[start_idx:i+1]
+                
+                if len(rr_window) >= 2:
+                    diff_rr = np.diff(rr_window)
+                    rmssd = np.sqrt(np.mean(diff_rr ** 2))
+                    rmssd_at_peaks.append(rmssd)
+                else:
+                    rmssd_at_peaks.append(np.nan)
+            else:
+                rmssd_at_peaks.append(np.nan)
+        
+        # Align lengths (peaklist has one more element than RR_list)
+        min_len = min(len(peak_times), len(hr_at_peaks), len(rmssd_at_peaks))
+  
+        return {
+            'timestamps': peak_times[:min_len],
+            'hr_bpm': hr_at_peaks[:min_len],
+            'rmssd': np.array(rmssd_at_peaks[:min_len])
+        }
+        
+    except Exception as e:
+        # Return empty arrays on failure (window will be rejected)
+        print(f"Error extracting HR time series from PPG: {e}")
+        raise e
+        # return {'timestamps': np.array([]), 'hr_bpm': np.array([]), 'rmssd': np.array([])}
 
 
 def extract_hrv_from_window(

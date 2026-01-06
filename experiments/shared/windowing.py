@@ -16,74 +16,165 @@ import pandas as pd
 import numpy as np
 from datetime import timedelta
 import logging
-
+from shared.hrv_extractor import extract_hr_timeseries_from_ppg
+from shared.alignment import align_signals
 logger = logging.getLogger(__name__)
 
 
 def parse_stress_events(annotation_df: Optional[pd.DataFrame],
                         stress_start_events: List[str],
-                        stress_stop_events: List[str],
-                        baseline_events: List[str],
-                        emotional_stress_start_events: Optional[List[str]] = None,
-                        emotional_stress_stop_events: Optional[List[str]] = None,
-                        physical_stress_start_events: Optional[List[str]] = None,
-                        physical_stress_stop_events: Optional[List[str]] = None) -> Dict:
+                        stress_stop_events: List[str]) -> Dict:
     """
-    Parse annotation file to extract stress onset times and periods.
+     Parse annotation file to extract stress onset times and periods.
     
-    Distinguishes between:
-    - EMOTIONAL stress (cognitive, public speaking) → labeled as STRESS
-    - PHYSICAL stress (exercise) → labeled as NO STRESS
+    For binary classification:
+    - STRESS (1): Emotional stress events (cognitive, public speaking)
+    - NOT STRESS (0): Everything else
     
     Args:
-        annotation_df: DataFrame with 'timestamp' and 'annotation' columns
-        stress_start_events: List of ALL stress start events (for context)
-        stress_stop_events: List of ALL stress stop events
-        baseline_events: List of baseline event names
-        emotional_stress_start_events: Events for EMOTIONAL stress (labeled as 1)
-        emotional_stress_stop_events: Stop events for emotional stress
-        physical_stress_start_events: Events for PHYSICAL stress (labeled as 0)
-        physical_stress_stop_events: Stop events for physical stress
+        annotation_df: DataFrame with 'timestamp' and annotation columns
+        stress_start_events: List of stress start event names (e.g., "Cognitive: Start")
+        stress_stop_events: List of stress stop event names (e.g., "Cognitive: Stop")
     
     Returns:
         Dictionary with:
-        - emotional_stress_onsets: List of emotional stress onset timestamps
-        - physical_stress_onsets: List of physical stress onset timestamps (NOT labeled as stress)
-        - stress_periods: List of (start, stop, stress_type) tuples
-        - baseline_periods: List of (start, stop) tuples
+        - stress_onsets: List of stress onset timestamps (for labeling)
+        - stress_periods: List of (start, stop) tuples (for context)
     """
     result = {
-        "emotional_stress_onsets": [],      # These ARE stress (1)
-        "physical_stress_onsets": [],        # These are NOT stress (0)
-        "stress_onsets": [],                 # ALL stress onsets (for backwards compat)
-        "stress_periods": [],
-        "emotional_stress_periods": [],
-        "physical_stress_periods": [],
-        "baseline_periods": [],
-        "all_events": []
+        "stress_onsets": [],
+        "stress_periods": []
     }
     
+    # if annotation_df is None or len(annotation_df) == 0:
+    #     return result
+    
+    # # Default to all stress events if emotional/physical not specified
+    # if emotional_stress_start_events is None:
+    #     emotional_stress_start_events = [e for e in stress_start_events if "Physical" not in e]
+    # if emotional_stress_stop_events is None:
+    #     emotional_stress_stop_events = [e for e in stress_stop_events if "Physical" not in e]
+    # if physical_stress_start_events is None:
+    #     physical_stress_start_events = [e for e in stress_start_events if "Physical" in e]
+    # if physical_stress_stop_events is None:
+    #     physical_stress_stop_events = [e for e in stress_stop_events if "Physical" in e]
+    
+    # # Find annotation column
+    # ann_col = None
+    # for col in annotation_df.columns:
+    #     if col.lower() in ["annotation", "event", "name", "label"]:
+    #         ann_col = col
+    #         break
+    
+    # if ann_col is None:
+    #     for col in annotation_df.columns:
+    #         if col != "timestamp" and annotation_df[col].dtype == object:
+    #             ann_col = col
+    #             break
+    
+    # if ann_col is None:
+    #     return result
+    
+    # # Store all events
+    # for _, row in annotation_df.iterrows():
+    #     event_name = str(row[ann_col]).strip()
+    #     event_time = row["timestamp"]
+    #     result["all_events"].append((event_time, event_name))
+    
+    # # Find EMOTIONAL stress onsets (these ARE labeled as stress)
+    # for _, row in annotation_df.iterrows():
+    #     event_name = str(row[ann_col]).strip()
+    #     event_time = row["timestamp"]
+        
+    #     for start_event in emotional_stress_start_events:
+    #         if start_event.lower() in event_name.lower():
+    #             result["emotional_stress_onsets"].append(event_time)
+    #             result["stress_onsets"].append(event_time)  # backwards compat
+    #             break
+    
+    # # Find PHYSICAL stress onsets (NOT labeled as stress - just for context)
+    # # for _, row in annotation_df.iterrows():
+    # #     event_name = str(row[ann_col]).strip()
+    # #     event_time = row["timestamp"]
+        
+    # #     for start_event in physical_stress_start_events:
+    # #         if start_event.lower() in event_name.lower():
+    # #             result["physical_stress_onsets"].append(event_time)
+    # #             break
+    
+    # # Find emotional stress periods
+    # for start_event, stop_event in zip(emotional_stress_start_events, emotional_stress_stop_events):
+    #     start_times = []
+    #     stop_times = []
+        
+    #     for _, row in annotation_df.iterrows():
+    #         event_name = str(row[ann_col]).strip()
+    #         event_time = row["timestamp"]
+            
+    #         if start_event.lower() in event_name.lower():
+    #             start_times.append(event_time)
+    #         elif stop_event.lower() in event_name.lower():
+    #             stop_times.append(event_time)
+        
+    #     for start in start_times:
+    #         for stop in stop_times:
+    #             if stop > start:
+    #                 result["emotional_stress_periods"].append((start, stop, "emotional"))
+    #                 result["stress_periods"].append((start, stop))
+    #                 break
+    
+    # # Find physical stress periods (exercise - NOT labeled as stress)
+    # for start_event, stop_event in zip(physical_stress_start_events, physical_stress_stop_events):
+    #     start_times = []
+    #     stop_times = []
+        
+    #     for _, row in annotation_df.iterrows():
+    #         event_name = str(row[ann_col]).strip()
+    #         event_time = row["timestamp"]
+            
+    #         if start_event.lower() in event_name.lower():
+    #             start_times.append(event_time)
+    #         elif stop_event.lower() in event_name.lower():
+    #             stop_times.append(event_time)
+        
+    #     for start in start_times:
+    #         for stop in stop_times:
+    #             if stop > start:
+    #                 result["physical_stress_periods"].append((start, stop, "physical"))
+    #                 break
+    
+    # # Find baseline periods
+    # for start_event, stop_event in zip(baseline_start_events, baseline_stop_events):
+    #     start_times = []
+    #     stop_times = []
+        
+    #     for _, row in annotation_df.iterrows():
+    #         event_name = str(row[ann_col]).strip()
+    #         event_time = row["timestamp"]
+            
+    #         if start_event.lower() in event_name.lower():
+    #             start_times.append(event_time)
+    #         elif stop_event.lower() in event_name.lower():
+    #             stop_times.append(event_time)
+        
+    #     for start in start_times:
+    #         for stop in stop_times:
+    #             if stop > start:
+    #                 result["baseline_periods"].append((start, stop))
+    #                 break
+
     if annotation_df is None or len(annotation_df) == 0:
         return result
-    
-    # Default to all stress events if emotional/physical not specified
-    if emotional_stress_start_events is None:
-        emotional_stress_start_events = [e for e in stress_start_events if "Physical" not in e]
-    if emotional_stress_stop_events is None:
-        emotional_stress_stop_events = [e for e in stress_stop_events if "Physical" not in e]
-    if physical_stress_start_events is None:
-        physical_stress_start_events = [e for e in stress_start_events if "Physical" in e]
-    if physical_stress_stop_events is None:
-        physical_stress_stop_events = [e for e in stress_stop_events if "Physical" in e]
     
     # Find annotation column
     ann_col = None
     for col in annotation_df.columns:
-        if col.lower() in ["annotation", "event", "name", "label"]:
+        if col.lower() in ["annotation", "event", "name", "label", "button name"]:
             ann_col = col
             break
     
     if ann_col is None:
+        # Try to find any string column that's not timestamp
         for col in annotation_df.columns:
             if col != "timestamp" and annotation_df[col].dtype == object:
                 ann_col = col
@@ -92,35 +183,18 @@ def parse_stress_events(annotation_df: Optional[pd.DataFrame],
     if ann_col is None:
         return result
     
-    # Store all events
-    for _, row in annotation_df.iterrows():
-        event_name = str(row[ann_col]).strip()
-        event_time = row["timestamp"]
-        result["all_events"].append((event_time, event_name))
-    
-    # Find EMOTIONAL stress onsets (these ARE labeled as stress)
+    # Find stress onsets
     for _, row in annotation_df.iterrows():
         event_name = str(row[ann_col]).strip()
         event_time = row["timestamp"]
         
-        for start_event in emotional_stress_start_events:
+        for start_event in stress_start_events:
             if start_event.lower() in event_name.lower():
-                result["emotional_stress_onsets"].append(event_time)
-                result["stress_onsets"].append(event_time)  # backwards compat
+                result["stress_onsets"].append(event_time)
                 break
     
-    # Find PHYSICAL stress onsets (NOT labeled as stress - just for context)
-    for _, row in annotation_df.iterrows():
-        event_name = str(row[ann_col]).strip()
-        event_time = row["timestamp"]
-        
-        for start_event in physical_stress_start_events:
-            if start_event.lower() in event_name.lower():
-                result["physical_stress_onsets"].append(event_time)
-                break
-    
-    # Find emotional stress periods
-    for start_event, stop_event in zip(emotional_stress_start_events, emotional_stress_stop_events):
+    # Find stress periods (start to stop)
+    for start_event, stop_event in zip(stress_start_events, stress_stop_events):
         start_times = []
         stop_times = []
         
@@ -133,108 +207,18 @@ def parse_stress_events(annotation_df: Optional[pd.DataFrame],
             elif stop_event.lower() in event_name.lower():
                 stop_times.append(event_time)
         
+        # Pair each start with its next stop
         for start in start_times:
             for stop in stop_times:
                 if stop > start:
-                    result["emotional_stress_periods"].append((start, stop, "emotional"))
                     result["stress_periods"].append((start, stop))
                     break
-    
-    # Find physical stress periods (exercise - NOT labeled as stress)
-    for start_event, stop_event in zip(physical_stress_start_events, physical_stress_stop_events):
-        start_times = []
-        stop_times = []
-        
-        for _, row in annotation_df.iterrows():
-            event_name = str(row[ann_col]).strip()
-            event_time = row["timestamp"]
-            
-            if start_event.lower() in event_name.lower():
-                start_times.append(event_time)
-            elif stop_event.lower() in event_name.lower():
-                stop_times.append(event_time)
-        
-        for start in start_times:
-            for stop in stop_times:
-                if stop > start:
-                    result["physical_stress_periods"].append((start, stop, "physical"))
-                    break
-    
-    # Find baseline periods
-    for baseline_event in baseline_events:
-        for _, row in annotation_df.iterrows():
-            event_name = str(row[ann_col]).strip()
-            event_time = row["timestamp"]
-            
-            if baseline_event.lower() in event_name.lower():
-                if "start" in event_name.lower():
-                    end_time = event_time + timedelta(minutes=5)
-                    result["baseline_periods"].append((event_time, end_time))
     
     return result
 
 
-def get_window_context(window_center: pd.Timestamp,
-                       stress_periods: List[Tuple],
-                       baseline_periods: List[Tuple],
-                       stress_onsets: List,
-                       emotional_stress_periods: List[Tuple] = None,
-                       physical_stress_periods: List[Tuple] = None) -> str:
-    """
-    Determine the context of a window.
-    
-    Distinguishes between:
-    - during_emotional_stress: cognitive/social stress (labeled as 1)
-    - during_physical_activity: exercise (labeled as 0)
-    - pre_emotional_stress: before cognitive/social stress onset
-    - baseline: confirmed rest period
-    
-    Args:
-        window_center: Center timestamp of the window
-        stress_periods: List of (start, stop) stress period tuples
-        baseline_periods: List of (start, stop) baseline period tuples
-        stress_onsets: List of stress onset timestamps
-        emotional_stress_periods: List of (start, stop, type) emotional stress periods
-        physical_stress_periods: List of (start, stop, type) physical stress periods
-    
-    Returns:
-        Context string
-    """
-    # Check if during EMOTIONAL stress (labeled as 1)
-    if emotional_stress_periods:
-        for start, stop, _ in emotional_stress_periods:
-            if start <= window_center <= stop:
-                return "during_emotional_stress"
-    
-    # Check if during PHYSICAL stress/exercise (NOT labeled as stress)
-    if physical_stress_periods:
-        for start, stop, _ in physical_stress_periods:
-            if start <= window_center <= stop:
-                return "during_physical_activity"
-    
-    # Fallback for any stress period
-    for start, stop in stress_periods:
-        if start <= window_center <= stop:
-            return "during_stress"
-    
-    # Check if during baseline
-    for start, stop in baseline_periods:
-        if start <= window_center <= stop:
-            return "baseline"
-    
-    # Check if pre-stress (within 15 minutes before stress onset)
-    for onset in stress_onsets:
-        time_to_stress = (onset - window_center).total_seconds() / 60
-        if 0 < time_to_stress <= 15:
-            return "pre_stress"
-    
-    # Check if post-stress (within 10 minutes after stress stop)
-    for start, stop in stress_periods:
-        time_after_stress = (window_center - stop).total_seconds() / 60
-        if 0 < time_after_stress <= 10:
-            return "post_stress"
-    
-    return "unknown"
+
+
 
 
 def compute_subject_stats(aligned_df: pd.DataFrame,
@@ -260,7 +244,10 @@ def compute_subject_stats(aligned_df: pd.DataFrame,
     """
     if channels is None:
         # Default channels used across experiments
-        channels = ["acc_magnitude", "skin_temp", "hr_bpm", "eda_stress_skin", "ppg_mean"]
+        channels = [
+            col for col in aligned_df.columns 
+            if col != "timestamp" and pd.api.types.is_numeric_dtype(aligned_df[col])
+        ]
     
     stats = {}
     
@@ -293,7 +280,7 @@ def create_labeled_windows(aligned_df: pd.DataFrame,
                            skip_first_minutes: int = 5,
                            subject_stats: Dict[str, Dict[str, float]] = None) -> List[Dict]:
     """
-    Create labeled windows from aligned data.
+    Create labeled windows from aligned data with optional per-window HR extraction.
     
     IMPORTANT: Only EMOTIONAL stress is labeled as STRESS (1).
     Physical stress (exercise) is labeled as NO STRESS (0).
@@ -303,7 +290,7 @@ def create_labeled_windows(aligned_df: pd.DataFrame,
     - Physical activity (moving + elevated HR) → NOT stress
     
     Args:
-        aligned_df: DataFrame with aligned 1Hz data
+        aligned_df: DataFrame with aligned data (without HR - simple sensors only)
         event_info: Dictionary from parse_stress_events()
         window_size_sec: Window size in seconds (default 120)
         overlap_ratio: Window overlap ratio (default 0.0)
@@ -312,63 +299,98 @@ def create_labeled_windows(aligned_df: pd.DataFrame,
         subject_stats: Pre-computed subject-level statistics for normalization.
                        If provided, will be attached to each window for subject-wise normalization.
                        Should be computed using compute_subject_stats() on the full aligned data.
+
     
     Returns:
-        List of window dictionaries with 'subject_stats' key if provided
+        List of window dictionaries with 'subject_stats' key if provided.
+        If ppg_data provided, each window will include hr_bpm and rmssd columns.
     """
-    windows = []
-    
-    # Track statistics
-    total_potential = 0
-    total_rejected = 0
-    reject_reasons = {"insufficient_data": 0}
+
+ 
     
     if aligned_df is None or len(aligned_df) == 0:
-        return windows
+        return []
     
     # Use EMOTIONAL stress onsets for labeling (NOT physical)
-    emotional_stress_onsets = event_info.get("emotional_stress_onsets", [])
-    physical_stress_onsets = event_info.get("physical_stress_onsets", [])
-    stress_periods = event_info.get("stress_periods", [])
-    emotional_stress_periods = event_info.get("emotional_stress_periods", [])
-    physical_stress_periods = event_info.get("physical_stress_periods", [])
-    baseline_periods = event_info.get("baseline_periods", [])
+    emotional_stress_onsets = event_info.get("stress_onsets", [])
     
     # Calculate step size
     step_size = int(window_size_sec * (1 - overlap_ratio))
-    if step_size < 1:
-        step_size = 1
+    step_size_sec = max(1, step_size)
     
     # Get time range
-    start_time = aligned_df["timestamp"].iloc[0]
+    start_time = aligned_df["timestamp"].iloc[0] + timedelta(minutes=skip_first_minutes)
     end_time = aligned_df["timestamp"].iloc[-1]
     
-    # Skip first N minutes
-    start_time = start_time + timedelta(minutes=skip_first_minutes)
+    window_starts = pd.date_range(
+        start=start_time,
+        end=end_time - timedelta(seconds=window_size_sec),
+        freq=f"{step_size_sec}S"
+    )
     
-    # Create windows
-    current_start = start_time
-    window_id = 0
-    
-    while current_start + timedelta(seconds=window_size_sec) <= end_time:
-        total_potential += 1
+
+    windows = []
+    rejected_count = 0
+    # rejected_hr_extraction = 0  # Track HR extraction failures
+    # rejected_hr_coverage = 0     # Track insufficient HR coverage  
+    # rejected_insufficient_data = 0  # Track insufficient window data
+
+    for window_id, window_start in enumerate(window_starts):
+        window_end = window_start + timedelta(seconds=window_size_sec)
+        window_center = window_start + timedelta(seconds=window_size_sec / 2)
+
+        window_data = aligned_df[(aligned_df["timestamp"] >= window_start ) & (aligned_df["timestamp"] < window_end)].copy()
         
-        window_start = current_start
-        window_end = current_start + timedelta(seconds=window_size_sec)
-        window_center = current_start + timedelta(seconds=window_size_sec / 2)
+        # Extract HR from raw PPG for this window
+        # # hr_extraction_success = False
+        # if ppg_data is not None:
+        #     from shared.hrv_extractor import extract_hr_timeseries_from_ppg
+        #     from shared.alignment import resample_signal_scipy
+            
+        #     hr_data = extract_hr_timeseries_from_ppg(ppg_data, window_start, window_end, sample_rate=64.0)
+            
+        #     if len(hr_data['timestamps']) > 0:
+        #         try:
+        #             # Create time grid for this window at target_hz
+        #             period_ms = int(1000 / target_hz)
+        #             time_grid = pd.date_range(window_start, window_end, freq=f"{period_ms}ms", inclusive='left')
+                    
+        # #             # Interpolate HR to the window's time grid
+        # #             # Convert timestamps to float (nanoseconds since epoch)
+        #             hr_ts = pd.to_datetime(hr_data['timestamps']).values.astype('datetime64[ns]').astype(float)
+        #             grid_ts = time_grid.values.astype('datetime64[ns]').astype(float)
+                    
+        #             hr_bpm_aligned = resample_signal_scipy(hr_ts, hr_data['hr_bpm'], grid_ts, method="linear")
+        #             rmssd_aligned = resample_signal_scipy(hr_ts, hr_data['rmssd'], grid_ts, method="linear")
+                    
+        #             # Check if we have sufficient HR coverage (at least 50% non-NaN)
+        #             hr_valid_count = np.sum(~np.isnan(hr_bpm_aligned))
+        #             hr_coverage = hr_valid_count / len(hr_bpm_aligned) if len(hr_bpm_aligned) > 0 else 0
+                    
+        #             if hr_coverage >= 0.5:  # Require at least 50% HR coverage
+        #                 # Add HR columns to window_data
+        #                 window_data["hr_bpm"] = hr_bpm_aligned
+        #                 window_data["rmssd"] = rmssd_aligned
+        #                 hr_extraction_success = True
+        #             # else: Insufficient coverage, will be rejected below
+                    
+                # except Exception as e:
+                #     print(f"Interpolation failed: {e}")
+                #     raise e
+        #             pass
         
-        # Extract window data
-        mask = (aligned_df["timestamp"] >= window_start) & (aligned_df["timestamp"] < window_end)
-        window_data = aligned_df.loc[mask].copy()
-        
-        if len(window_data) < window_size_sec * 0.5:  # Skip if less than 50% data
-            total_rejected += 1
-            reject_reasons["insufficient_data"] += 1
-            current_start = current_start + timedelta(seconds=step_size)
-            continue
-        
-        # Create labels for each horizon
-        # ONLY label EMOTIONAL stress as 1
+        # # If HR extraction failed, reject this window (skip it entirely)
+        # if not hr_extraction_success:
+        #     rejected_count += 1
+        #     rejected_hr_extraction += 1
+        #     continue
+
+        # # Reject if insufficient sensor data in window
+        # if len(window_data) < window_size_sec * 0.5:
+        #     rejected_count += 1
+        #     rejected_insufficient_data += 1
+        #     continue
+
         labels = {}
         for horizon in horizons_minutes:
             horizon_end = window_end + timedelta(minutes=horizon)
@@ -382,17 +404,6 @@ def create_labeled_windows(aligned_df: pd.DataFrame,
             
             labels[f"label_{horizon}min"] = label
         
-        # Get context (includes physical activity detection)
-        context = get_window_context(
-            window_center, 
-            stress_periods, 
-            baseline_periods, 
-            emotional_stress_onsets,  # Use emotional only
-            emotional_stress_periods,
-            physical_stress_periods
-        )
-        
-        # Create window dictionary
         window_dict = {
             "window_id": window_id,
             "window_start": window_start,
@@ -400,7 +411,6 @@ def create_labeled_windows(aligned_df: pd.DataFrame,
             "window_center": window_center,
             "duration_sec": window_size_sec,
             "window_data": window_data,
-            "context": context,
             **labels
         }
         
@@ -409,21 +419,33 @@ def create_labeled_windows(aligned_df: pd.DataFrame,
             window_dict["subject_stats"] = subject_stats
         
         windows.append(window_dict)
-        window_id += 1
-        current_start = current_start + timedelta(seconds=step_size)
-    
     # Log windowing statistics
     total_accepted = len(windows)
-    if total_potential > 0:
-        acceptance_rate = 100 * total_accepted / total_potential
-        rejection_rate = 100 * total_rejected / total_potential
-        
-        logger.debug(f"Windowing stats: {total_accepted}/{total_potential} windows accepted "
-                    f"({acceptance_rate:.1f}%), {total_rejected} rejected ({rejection_rate:.1f}%)")
-        if total_rejected > 0:
-            logger.debug(f"  Rejection reasons: {reject_reasons}")
+    total_attempted = len(window_starts)
     
+    if total_attempted > 0:
+        acceptance_rate = 100 * total_accepted / total_attempted
+        rejection_rate = 100 * rejected_count / total_attempted
+        
+        # rejection_details = []
+        # if rejected_hr_extraction > 0:
+        #     rejection_details.append(f"HR extraction: {rejected_hr_extraction}")
+        # if rejected_hr_coverage > 0:
+        #     rejection_details.append(f"HR coverage: {rejected_hr_coverage}")
+        # if rejected_insufficient_data > 0:
+        #     rejection_details.append(f"Insufficient data: {rejected_insufficient_data}")
+        
+        # details_str = ", ".join(rejection_details) if rejection_details else "None"
+        
+        logger.debug(
+            f"Windowing: {total_accepted}/{total_attempted} windows accepted "
+            f"({acceptance_rate:.1f}%), {rejected_count} rejected ({rejection_rate:.1f}%) "
+            # f"[Reasons: {details_str}]"
+        )
     return windows
+        
+
+
 
 
 if __name__ == "__main__":
@@ -474,7 +496,7 @@ if __name__ == "__main__":
             window_size_sec=DEFAULT_CONFIG.window_size_sec,
             skip_first_minutes=DEFAULT_CONFIG.skip_first_minutes,
             subject_stats=subject_stats  # Pass subject stats for normalization
-        )
+        )   
         
         print(f"\nCreated {len(windows)} windows")
         

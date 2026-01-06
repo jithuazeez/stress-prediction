@@ -18,11 +18,11 @@ class Config:
     """Configuration for VitaStress experiments."""
     
     # Paths
-    # data_path: Path = Path("/Users/jithuazeez/Documents/Msc/Dissertation/Datasets/VitaStress/data")
-    data_path: Path = Path("/kaggle/input/vitastress/VitaStress/data")
+    data_path: Path = Path("/Users/jithuazeez/Documents/Msc/Dissertation/Datasets/VitaStress/data")
+    # data_path: Path = Path("/kaggle/input/vitastress/VitaStress/data")
     # data_path: Path = Path("/kaggle/input/vitastess2/VitaStress/data")
-    # results_base_path: Path = Path("/Users/jithuazeez/Documents/Msc/Dissertation/experiments")
-    results_base_path: Path = Path("/kaggle/working/stress-prediction/experiments")
+    results_base_path: Path = Path("/Users/jithuazeez/Documents/Msc/Dissertation/experiments")
+    # results_base_path: Path = Path("/kaggle/working/stress-prediction/experiments")
     # Window parameters
     window_size_sec: int = 120  # 120 second windows
     overlap_ratio: float = 0.5  # 50% overlap (doubles sample count)
@@ -55,45 +55,35 @@ class Config:
     
     # EMOTIONAL/MENTAL stress events - these ARE labeled as STRESS (1)
     # These involve cognitive load, social stress, anxiety, etc.
-    emotional_stress_start_events: List[str] = field(default_factory=lambda: [
-        "Cognitive: Start",       # Mental arithmetic, cognitive tasks
-        "Public Speaking Start"   # Social stress, anxiety
-    ])
+    # emotional_stress_start_events: List[str] = field(default_factory=lambda: [
+        # "Cognitive: Start",       # Mental arithmetic, cognitive tasks
+        # "Public Speaking: Preparation Start"   # Social stress, anxiety
+    # ])
     
-    emotional_stress_stop_events: List[str] = field(default_factory=lambda: [
-        "Cognitive: Stop",
-        "Public Speaking Stop"
-    ])
+    # emotional_stress_stop_events: List[str] = field(default_factory=lambda: [
+        # "Cognitive: Stop",
+        # "Public Speaking Stop"
+    # ])
     
     # PHYSICAL stress events - these are NOT labeled as stress (0)
     # These are exercise/physical activity, not emotional stress
-    physical_stress_start_events: List[str] = field(default_factory=lambda: [
-        "Physical: Start"
-    ])
+    # physical_stress_start_events: List[str] = field(default_factory=lambda: [
+        # "Physical: Start"
+    # ])
     
-    physical_stress_stop_events: List[str] = field(default_factory=lambda: [
-        "Physical: Stop"
-    ])
+    # physical_stress_stop_events: List[str] = field(default_factory=lambda: [
+        # "Physical: Stop"
+    # ])
     
     # ALL experiment events (for context detection, NOT for labeling)
     # NOTE: Physical stress is NOT labeled as stress (1) - only emotional stress is!
     # This list is used to detect when user is in ANY experiment (for context)
-    all_experiment_start_events: List[str] = field(default_factory=lambda: [
-        "Cognitive: Start",
-        "Physical: Start",
-        "Public Speaking Start"
-    ])
-    
-    all_experiment_stop_events: List[str] = field(default_factory=lambda: [
-        "Cognitive: Stop",
-        "Physical: Stop",
-        "Public Speaking Stop"
-    ])
+   
     
     # For backwards compatibility (deprecated - use emotional_stress_start_events for labeling)
     stress_start_events: List[str] = field(default_factory=lambda: [
         "Cognitive: Start",
-        "Public Speaking Start"
+        "Public Speaking: Preparation Start"
     ])
     
     stress_stop_events: List[str] = field(default_factory=lambda: [
@@ -101,9 +91,14 @@ class Config:
         "Public Speaking Stop"
     ])
     
-    baseline_events: List[str] = field(default_factory=lambda: [
+    baseline_start_events: List[str] = field(default_factory=lambda: [
         "Baseline Start",
         "Rest: Start"
+    ])
+
+    baseline_stop_events: List[str] = field(default_factory=lambda: [
+        "Baseline Stop",
+        "Rest: Stop"
     ])
     
     # Random seed for reproducibility

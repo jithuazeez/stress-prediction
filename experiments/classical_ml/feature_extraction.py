@@ -55,7 +55,7 @@ import logging
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 
 try:
-    from features.activity_features import ActivityFeatureExtractor, STRESS_ACC_FEATURES
+    from shared.activity_features import ActivityFeatureExtractor, STRESS_ACC_FEATURES
     EXTRACTORS_AVAILABLE = True
 except ImportError:
     EXTRACTORS_AVAILABLE = False
@@ -64,7 +64,7 @@ except ImportError:
 
 # Import HRV extractor
 try:
-    from features.hrv_extractor import HRV_FEATURE_NAMES
+    from shared.hrv_extractor import HRV_FEATURE_NAMES
     HRV_EXTRACTOR_AVAILABLE = True
 except ImportError:
     HRV_EXTRACTOR_AVAILABLE = False
@@ -249,7 +249,8 @@ class BasicFeatureExtractor:
             return calculate_sampling_rate(window_df["timestamp"])
         return self.default_sampling_rate
     
-    def extract_accelerometer_features(self, window_df: pd.DataFrame) -> Dict[str, float]:
+    def extract_accelerometer_features(self, window_df: pd.DataFrame,
+                                      subject_stats: Optional[Dict[str, Dict[str, float]]] = None) -> Dict[str, float]:
         """
         Extract accelerometer features for emotional stress detection.
         
@@ -258,6 +259,10 @@ class BasicFeatureExtractor:
         2. ACTIVITY CLASSIFICATION: sitting vs exercise
         
         Dynamically calculates sampling rate from the data.
+        
+        Args:
+            window_df: Window data
+            subject_stats: Per-subject statistics for normalization (optional)
         """
         features = {}
         
@@ -290,6 +295,10 @@ class BasicFeatureExtractor:
         acc_y = acc_y[:min_len]
         acc_z = acc_z[:min_len]
         
+        if subject_stats is not None:
+            acc_x = (acc_x - subject_stats['acc_x']['mean']) / subject_stats['acc_x']['std']
+            acc_y = (acc_y - subject_stats['acc_y']['mean']) / subject_stats['acc_y']['std']
+            acc_z = (acc_z - subject_stats['acc_z']['mean']) / subject_stats['acc_z']['std']
         # Get sampling rate from data (NEVER hardcoded)
         sampling_rate = self._get_window_sampling_rate(window_df)
         
@@ -304,74 +313,31 @@ class BasicFeatureExtractor:
                     acc_x, acc_y, acc_z,
                     include_frequency=include_freq
                 )
+                    
             except Exception as e:
                 logger.warning(f"Feature extraction failed: {e}")
-                features = self._extract_basic_acc_features(acc_x, acc_y, acc_z, sampling_rate)
-        else:
-            features = self._extract_basic_acc_features(acc_x, acc_y, acc_z, sampling_rate)
+                raise e
+       
         
         return features
     
-    def _extract_basic_acc_features(self, acc_x: np.ndarray, acc_y: np.ndarray, 
-                                    acc_z: np.ndarray, sampling_rate: float) -> Dict[str, float]:
-        """Fallback basic accelerometer feature extraction."""
-        features = {}
-        
-        magnitude = np.sqrt(acc_x**2 + acc_y**2 + acc_z**2)
-        
-        # Basic stats
-        features["acc_magnitude_mean"] = np.mean(magnitude)
-        features["acc_magnitude_std"] = np.std(magnitude)
-        features["acc_magnitude_min"] = np.min(magnitude)
-        features["acc_magnitude_max"] = np.max(magnitude)
-        features["acc_magnitude_range"] = np.ptp(magnitude)
-        features["acc_magnitude_median"] = np.median(magnitude)
-        
-        q75, q25 = np.percentile(magnitude, [75, 25])
-        features["acc_magnitude_iqr"] = q75 - q25
-        
-        features["acc_x_std"] = np.std(acc_x)
-        features["acc_y_std"] = np.std(acc_y)
-        features["acc_z_std"] = np.std(acc_z)
-        
-        features["acc_sma"] = (np.sum(np.abs(acc_x)) + np.sum(np.abs(acc_y)) + 
-                              np.sum(np.abs(acc_z))) / len(acc_x)
-        features["acc_ima"] = np.mean(np.abs(magnitude))
-        features["acc_energy"] = np.sum(magnitude**2) / len(magnitude)
-        
-        mean_centered = magnitude - np.mean(magnitude)
-        zero_crossings = np.sum(np.abs(np.diff(np.sign(mean_centered))) > 0)
-        features["acc_zcr"] = zero_crossings / len(mean_centered) if len(mean_centered) > 1 else 0.0
-        
-        features["acc_magnitude_skewness"] = float(stats.skew(magnitude)) if len(magnitude) > 2 else 0.0
-        features["acc_magnitude_kurtosis"] = float(stats.kurtosis(magnitude)) if len(magnitude) > 3 else 0.0
-        
-        # Jerk - use dynamic sampling rate
-        if len(magnitude) > 1:
-            jerk = np.diff(magnitude) * sampling_rate
-            features["acc_jerk_mean"] = np.mean(np.abs(jerk))
-            features["acc_jerk_std"] = np.std(jerk)
-            features["acc_jerk_max"] = np.max(np.abs(jerk))
-            features["acc_jerk_energy"] = np.sum(jerk**2) / len(jerk)
-        else:
-            features["acc_jerk_mean"] = np.nan
-            features["acc_jerk_std"] = np.nan
-            features["acc_jerk_max"] = np.nan
-            features["acc_jerk_energy"] = np.nan
-        
-        # Activity classification (basic)
-        # features["motion_flag"] = 1 if features["acc_magnitude_std"] > 0.5 else 0
-        # features["is_stationary"] = 1 if features["acc_magnitude_std"] < 0.3 else 0
-        # features["is_high_activity"] = 1 if features["acc_magnitude_std"] > 1.0 else 0
-        
-        return features
+
     
-    def extract_temperature_features(self, window_df: pd.DataFrame) -> Dict[str, float]:
-        """Extract temperature features from window data."""
+    def extract_temperature_features(self, window_df: pd.DataFrame,
+                                     subject_stats: Optional[Dict[str, Dict[str, float]]] = None) -> Dict[str, float]:
+        """
+        Extract temperature features from window data.
+        
+        Args:
+            window_df: Window data
+            subject_stats: Per-subject statistics for normalization (optional)
+        """
         features = {}
         
         if "skin_temp" in window_df.columns:
             temp = window_df["skin_temp"].dropna().values
+            if subject_stats is not None:
+                temp = (temp - subject_stats['skin_temp']['mean']) / subject_stats['skin_temp']['std']
             if len(temp) > 0:
                 features["temp_mean"] = np.mean(temp)
                 features["temp_std"] = np.std(temp) if len(temp) > 1 else 0.0
@@ -387,24 +353,36 @@ class BasicFeatureExtractor:
                     features["temp_slope"] = 0.0
                 
                 features["temp_change"] = temp[-1] - temp[0] if len(temp) > 1 else 0.0
+                
+                # Add subject-wise normalization if available
+                # if subject_stats is not None:
+                #     features.update(self._normalize_signal_features(
+                #         window_df, ['skin_temp'], subject_stats
+                #     ))
             else:
                 for key in ["temp_mean", "temp_std", "temp_min", "temp_max", 
                            "temp_range", "temp_slope", "temp_change"]:
                     features[key] = np.nan
-        else:
-            for key in ["temp_mean", "temp_std", "temp_min", "temp_max", 
-                       "temp_range", "temp_slope", "temp_change"]:
-                features[key] = np.nan
         
         return features
     
-    def extract_heatflux_features(self, window_df: pd.DataFrame) -> Dict[str, float]:
-        """Extract enhanced heat flux and core body temperature features."""
+    def extract_heatflux_features(self, window_df: pd.DataFrame,
+                                   subject_stats: Optional[Dict[str, Dict[str, float]]] = None) -> Dict[str, float]:
+        """
+        Extract enhanced heat flux and core body temperature features.
+        
+        Args:
+            window_df: Window data
+            subject_stats: Per-subject statistics for normalization (optional)
+        """
         features = {}
         
         # Heatflux features (enhanced with more stats)
         if "heatflux" in window_df.columns:
+            
             hf = window_df["heatflux"].dropna().values
+            if subject_stats is not None:
+                hf = (hf - subject_stats['heatflux']['mean']) / subject_stats['heatflux']['std']
             if len(hf) > 0:
                 features["heatflux_mean"] = np.mean(hf)
                 features["heatflux_std"] = np.std(hf) if len(hf) > 1 else 0.0
@@ -412,18 +390,23 @@ class BasicFeatureExtractor:
                 features["heatflux_max"] = np.max(hf)
                 features["heatflux_range"] = np.ptp(hf)
                 features["heatflux_change"] = hf[-1] - hf[0] if len(hf) > 1 else 0.0
+                
+                # # Add subject-wise normalization if available
+                # if subject_stats is not None:
+                #     features.update(self._normalize_signal_features(
+                #         window_df, ['heatflux'], subject_stats
+                #     ))
             else:
                 for key in ["heatflux_mean", "heatflux_std", "heatflux_min", 
                            "heatflux_max", "heatflux_range", "heatflux_change"]:
                     features[key] = np.nan
-        else:
-            for key in ["heatflux_mean", "heatflux_std", "heatflux_min", 
-                       "heatflux_max", "heatflux_range", "heatflux_change"]:
-                features[key] = np.nan
+       
         
         # Core body temperature features (enhanced)
         if "cbt" in window_df.columns:
             cbt = window_df["cbt"].dropna().values
+            if subject_stats is not None:
+                cbt = (cbt - subject_stats['cbt']['mean']) / subject_stats['cbt']['std']
             if len(cbt) > 0:
                 features["cbt_mean"] = np.mean(cbt)
                 features["cbt_std"] = np.std(cbt) if len(cbt) > 1 else 0.0
@@ -431,17 +414,14 @@ class BasicFeatureExtractor:
             else:
                 for key in ["cbt_mean", "cbt_std", "cbt_change"]:
                     features[key] = np.nan
-        else:
-            for key in ["cbt_mean", "cbt_std", "cbt_change"]:
-                features[key] = np.nan
-        
         return features
     
     # EDA features removed - low sample rate (~0.017 Hz) and high missing data
     # Not valuable for classical ML given these limitations
     
     def extract_from_window(self, window_df: pd.DataFrame, 
-                           hr_hrv_features: Optional[Dict[str, float]] = None) -> Dict[str, float]:
+                           hr_hrv_features: Optional[Dict[str, float]] = None,
+                           subject_stats: Optional[Dict[str, Dict[str, float]]] = None) -> Dict[str, float]:
         """
         Extract all features for emotional stress detection.
         
@@ -454,24 +434,29 @@ class BasicFeatureExtractor:
         Args:
             window_df: DataFrame with aligned 1Hz data for the window
             hr_hrv_features: Pre-computed HR/HRV features from 64Hz PPG (optional)
+            subject_stats: Per-subject statistics for normalization (optional)
+                          Format: {"channel": {"mean": ..., "std": ...}, ...}
         
         Returns:
-            Dictionary of ~70 features
+            Dictionary of ~70 features (+ normalized versions if subject_stats provided)
         """
         features = {}
         
         # Accelerometer features (stress + activity classification, ~41)
-        features.update(self.extract_accelerometer_features(window_df))
+        features.update(self.extract_accelerometer_features(window_df, subject_stats))
         
         # Temperature features (7)
-        features.update(self.extract_temperature_features(window_df))
+        features.update(self.extract_temperature_features(window_df, subject_stats))
         
         # Heat flux features (9)
-        features.update(self.extract_heatflux_features(window_df))
+        features.update(self.extract_heatflux_features(window_df, subject_stats))
         
         # HR/HRV features from raw PPG at 64Hz (13)
         if hr_hrv_features is not None:
             features.update(hr_hrv_features)
+            # Apply subject-wise normalization to HR/HRV features if stats available
+            # if subject_stats is not None:
+            #     features.update(self._normalize_hrv_features(hr_hrv_features, subject_stats))
         else:
             # Add NaN placeholders if HR/HRV not available
             if HRV_EXTRACTOR_AVAILABLE:
@@ -480,6 +465,70 @@ class BasicFeatureExtractor:
         
         return features
     
+    # def _normalize_hrv_features(self, hrv_features: Dict[str, float], 
+    #                             subject_stats: Dict[str, Dict[str, float]]) -> Dict[str, float]:
+    #     """
+    #     Apply subject-wise z-score normalization to HRV features.
+        
+    #     Args:
+    #         hrv_features: Raw HRV features
+    #         subject_stats: Per-subject statistics
+        
+    #     Returns:
+    #         Dictionary with normalized features (prefixed with 'norm_')
+    #     """
+    #     normalized = {}
+        
+    #     # Only normalize numeric HRV features (hr_bpm, hrv_*)
+    #     for key, value in hrv_features.items():
+    #         if pd.isna(value) or not isinstance(value, (int, float)):
+    #             continue
+            
+    #         # Check if we have stats for this feature
+    #         if key in subject_stats:
+    #             mean = subject_stats[key]["mean"]
+    #             std = subject_stats[key]["std"]
+                
+    #             # Avoid division by zero
+    #             if std > 0:
+    #                 normalized[f"norm_{key}"] = (value - mean) / std
+    #             else:
+    #                 normalized[f"norm_{key}"] = 0.0
+        
+    #     return normalized
+    
+    def _normalize_signal_features(self, window_df: pd.DataFrame,
+                                    signal_names: List[str],
+                                    subject_stats: Dict[str, Dict[str, float]]) -> Dict[str, float]:
+        """
+        Apply subject-wise z-score normalization to raw signal mean values.
+        
+        Args:
+            window_df: Window data
+            signal_names: List of signal column names to normalize
+            subject_stats: Per-subject statistics
+        
+        Returns:
+            Dictionary with normalized mean values (prefixed with 'norm_')
+        """
+        normalized = {}
+        
+        for signal in signal_names:
+            if signal in window_df.columns and signal in subject_stats:
+                values = window_df[signal].dropna().values
+                if len(values) > 0:
+                    window_mean = np.mean(values)
+                    subj_mean = subject_stats[signal]["mean"]
+                    subj_std = subject_stats[signal]["std"]
+                    
+                    # Z-score normalization
+                    if subj_std > 0:
+                        normalized[f"norm_{signal}_mean"] = (window_mean - subj_mean) / subj_std
+                    else:
+                        normalized[f"norm_{signal}_mean"] = 0.0
+        
+        return normalized
+    
     def get_feature_names(self) -> List[str]:
         """Get list of all feature names."""
         feature_names = STRESS_ACC_FEATURES + [
@@ -487,7 +536,7 @@ class BasicFeatureExtractor:
             "temp_slope", "temp_change",
             "heatflux_mean", "heatflux_std", "heatflux_min", "heatflux_max", 
             "heatflux_range", "heatflux_change",
-            "cbt_mean", "cbt_std", "cbt_change",
+            "cbt_mean", "cbt_std", "cbt_change"
         ]
         # Add HR/HRV features if available
         if HRV_EXTRACTOR_AVAILABLE:
@@ -501,7 +550,7 @@ FEATURE_NAMES = STRESS_ACC_FEATURES + [
     "temp_mean", "temp_std", "temp_min", "temp_max", "temp_range",
     "temp_slope", "temp_change",
     "heatflux_mean", "heatflux_std", "heatflux_min", "heatflux_max",
-    "heatflux_range", "heatflux_change",
+    "heatflux_range", "heatflux_change",        
     "cbt_mean", "cbt_std", "cbt_change",
 ]
 if HRV_EXTRACTOR_AVAILABLE:

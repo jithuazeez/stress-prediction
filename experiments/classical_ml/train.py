@@ -48,7 +48,7 @@ from feature_extraction import (
 
 # Import HRV extractor
 try:
-    from features.hrv_extractor import extract_hrv_from_window, HRV_FEATURE_NAMES
+    from shared.hrv_extractor import extract_hrv_from_window, HRV_FEATURE_NAMES
     HEARTPY_AVAILABLE = True
 except ImportError:
     HEARTPY_AVAILABLE = False
@@ -77,7 +77,7 @@ def process_subject(subject_folder: Path,
     """
     Process a single subject with two-stage feature extraction.
     
-    Stage 1: Align to 1Hz, create windows
+    Stage 1: Align to 4Hz, create windows
     Stage 2: Extract HR/HRV from raw PPG at 64Hz (before alignment)
     Stage 3: Extract features from 1Hz aligned windows, attach HR/HRV
     """
@@ -105,7 +105,6 @@ def process_subject(subject_folder: Path,
         signals.get("annotation"),
         config.stress_start_events,
         config.stress_stop_events,
-        config.baseline_events
     )
     
     # Create windows with subject stats
@@ -191,10 +190,14 @@ def process_subject(subject_folder: Path,
         window_key = (window["window_start"], window["window_end"])
         hrv_features = hr_hrv_cache.get(window_key)
         
-        # Extract from 1Hz aligned data
+        # Get subject-level statistics for normalization
+        subject_stats = window.get("subject_stats", None)
+        
+        # Extract from 4Hz aligned data with subject-wise normalization
         features = extractor.extract_from_window(
             window["window_data"],
-            hr_hrv_features=hrv_features
+            hr_hrv_features=hrv_features,
+            subject_stats=subject_stats
         )
         
         row = {
@@ -202,7 +205,7 @@ def process_subject(subject_folder: Path,
             "window_id": window["window_id"],
             "window_start": window["window_start"],
             "window_end": window["window_end"],
-            "context": window["context"],
+            # "context": window["context"],
             **features,
         }
         
@@ -217,7 +220,7 @@ def process_subject(subject_folder: Path,
             "window_id": window["window_id"],
             "window_start": window["window_start"],
             "window_end": window["window_end"],
-            "context": window["context"],
+            # "context": window["context"],
         }
         
         # Add labels
@@ -323,7 +326,7 @@ def prepare_data(df: pd.DataFrame,
         X_df = X_df.drop(columns=cols_to_drop)
         feature_cols = [col for col in feature_cols if col not in cols_to_drop]
     
-    # Check missingness before imputation
+    # Check missingness (imputation will be done per-fold to avoid leakage)
     missing_before = {}
     hrv_features = [col for col in feature_cols if col.startswith(('hr_', 'hrv_'))]
     
@@ -336,31 +339,15 @@ def prepare_data(df: pd.DataFrame,
             if pct_missing > 0:
                 logger.info(f"    {feat:25s}: {n_missing:4d}/{len(X_df)} ({pct_missing:5.1f}% missing)")
     
-    # Impute missing values with MEDIAN (not zero!)
-    from sklearn.impute import SimpleImputer
-    imputer = SimpleImputer(strategy='median')
-    X_imputed = imputer.fit_transform(X_df)
+    logger.info(f"  ⚠️  Imputation will be performed per-fold during LOSO CV to avoid data leakage")
     
-    # Get the actual feature names after imputation (SimpleImputer preserves column order)
+    # Get the actual feature names
     final_feature_cols = X_df.columns.tolist()
     
-    # Convert back to DataFrame for verification
-    X_df_imputed = pd.DataFrame(X_imputed, columns=final_feature_cols, index=X_df.index)
-    
-    # Verify no missing values remain
-    remaining_missing = X_df_imputed.isna().sum().sum()
-    if remaining_missing > 0:
-        logger.warning(f"  ⚠️  {remaining_missing} missing values remain after imputation!")
-    else:
-        logger.info(f"  ✓ All missing values imputed successfully")
-    
-    # Final conversion
-    X = X_df_imputed.values.astype(float)
+    # Convert to numpy without imputation (will be done per-fold)
+    X = X_df.values.astype(float)
     y = df_filtered[label_col].values
     subjects = df_filtered["subject_id"].values
-    
-    # Final safety check - replace any remaining NaN/inf
-    X = np.nan_to_num(X, nan=0.0, posinf=0.0, neginf=0.0)
     
     logger.info(f"\n  Final dataset shape: {X.shape}")
     logger.info(f"  Features: {X.shape[1]}")
@@ -383,7 +370,7 @@ def get_hyperparameter_grid(model_name: str) -> Dict:
     """
     if model_name == "logistic_regression":
         return {
-            'C': [0.001, 0.01, 0.1, 1.0, 5.0],  # Regularization strength
+            'C': [ 0.1, 1.0, 5.0,10.0],  # Regularization strength
             'penalty': ['l1', 'l2'],                      # Regularization type
             'solver': ['liblinear', 'saga'],              # Optimizers that support both L1/L2
             'max_iter': [1000]                            # Fixed for convergence
@@ -393,21 +380,21 @@ def get_hyperparameter_grid(model_name: str) -> Dict:
     elif model_name == "random_forest":
         return {
             'n_estimators': [50, 100, 200],               # Number of trees
-            'max_depth': [5, 10, 15,],           # Tree depth
-            'min_samples_split': [2, 5, 10],              # Min samples to split node
-            'min_samples_leaf': [1, 2, 4],                # Min samples at leaf
+            'max_depth': [5, 10, 15,20],           # Tree depth
+            'min_samples_split': [2, 5, 10,15],              # Min samples to split node
+            'min_samples_leaf': [1, 2, 4,6],                # Min samples at leaf
             'max_features': ['sqrt', 'log2'],       # Features per split
             'bootstrap': [True],                          # Always use bootstrap
         }
     
-    # elif model_name == "svm":
-    #     return {
-    #         'C': [0.1, 1.0, 10.0],                 # Regularization
-    #         'kernel': ['rbf', 'poly', 'sigmoid'],         # Kernel types
-    #         'gamma': ['scale', 0.001, 0.01, 0.1], # Kernel coefficient
-    #         'degree': [2, 3, 4],                          # For poly kernel only
-    #         'probability': [True]                         # Always need probabilities
-    #     }
+    elif model_name == "svm":
+        return {
+            'C': [0.1, 1.0, 5.0, 10.0],                 # Regularization
+            'kernel': ['rbf', 'poly', 'sigmoid'],         # Kernel types
+            'gamma': [ 0.001, 0.01, 0.1], # Kernel coefficient
+            'degree': [2, 3, 4],                          # For poly kernel only
+            'probability': [True]                         # Always need probabilities
+        }
     
     # elif model_name == "xgboost":
     #     return {
@@ -504,6 +491,12 @@ def inner_cv_hyperparameter_tuning(
             if len(X_inner_val) == 0 or len(np.unique(y_inner_val)) < 2:
                 continue
             
+            # Impute missing values (fit on inner train only)
+            from sklearn.impute import SimpleImputer
+            inner_imputer = SimpleImputer(strategy='median')
+            X_inner_train = inner_imputer.fit_transform(X_inner_train)
+            X_inner_val = inner_imputer.transform(X_inner_val)
+            
             # Combine base kwargs with current params
             model_kwargs = {**base_model_kwargs, **params}
             
@@ -516,7 +509,7 @@ def inner_cv_hyperparameter_tuning(
             elif "class_weight" in str(model_class.__init__.__code__.co_varnames):
                 model_kwargs["class_weight"] = "balanced"
             
-            # Handle NaN
+            # Handle NaN (should be minimal after imputation)
             X_inner_train = np.nan_to_num(X_inner_train, nan=0.0)
             X_inner_val = np.nan_to_num(X_inner_val, nan=0.0)
             
@@ -667,6 +660,13 @@ def loso_cross_validation(X: np.ndarray,
         if len(X_test) == 0:
             continue
         
+        # ========== STEP 1.5: IMPUTE MISSING VALUES (FIT ON TRAIN ONLY) ==========
+        # Impute missing values using ONLY training data to avoid leakage
+        from sklearn.impute import SimpleImputer
+        imputer = SimpleImputer(strategy='median')
+        X_train = imputer.fit_transform(X_train)  # Fit on train
+        X_test = imputer.transform(X_test)  # Transform test using train statistics
+        
         # ========== STEP 2: HYPERPARAMETER TUNING (INNER CV) ==========
         if enable_tuning and param_grid:
             best_params = inner_cv_hyperparameter_tuning(
@@ -697,14 +697,14 @@ def loso_cross_validation(X: np.ndarray,
         X_test = np.nan_to_num(X_test, nan=0.0, posinf=0.0, neginf=0.0)
         
         # Scale features
-        scaler = StandardScaler()
-        X_train_scaled = scaler.fit_transform(X_train)
-        X_test_scaled = scaler.transform(X_test)
+        # scaler = StandardScaler()
+        # X_train_scaled = scaler.fit_transform(X_train)
+        # X_test_scaled = scaler.transform(X_test)
         
         # Train with best hyperparameters
         try:
             model = model_class(**model_kwargs_fold)
-            model.fit(X_train_scaled, y_train)
+            model.fit(X_train, y_train)
         except Exception as e:
             logger.warning(f"Fold {fold_idx+1}: Training failed for {test_subject[:8]}... - {e}")
             continue
@@ -712,9 +712,9 @@ def loso_cross_validation(X: np.ndarray,
         # ========== STEP 4: THRESHOLD SELECTION (TRAIN DATA ONLY) ==========
         # Get probabilities on TRAINING data for threshold selection
         try:
-            y_train_proba = model.predict_proba(X_train_scaled)[:, 1]
+            y_train_proba = model.predict_proba(X_train)[:, 1]
         except Exception:
-            y_train_proba = model.predict(X_train_scaled).astype(float)
+            y_train_proba = model.predict(X_train).astype(float)
         
         # Find optimal threshold on TRAINING data
         from shared.evaluation import find_optimal_threshold
@@ -728,9 +728,9 @@ def loso_cross_validation(X: np.ndarray,
         # ========== STEP 5: TEST ON HELD-OUT SUBJECT ==========
         # Predict on TEST data
         try:
-            y_proba = model.predict_proba(X_test_scaled)[:, 1]
+            y_proba = model.predict_proba(X_test)[:, 1]
         except Exception:
-            y_proba = model.predict(X_test_scaled).astype(float)
+            y_proba = model.predict(X_test).astype(float)
         
         # Apply optimal threshold from training
         y_pred = (y_proba >= optimal_threshold).astype(int)
@@ -1179,14 +1179,14 @@ def main():
             LogisticRegression,
             {"max_iter": 1000,"C": 5.0 ,'penalty':"l1","solver": "saga", "random_state": config.random_seed}
         ),
-    #     "random_forest": (
-    #         RandomForestClassifier,
-    #         {"n_estimators": 100, "max_depth": 10, "random_state": config.random_seed, "n_jobs": -1}
-    #     ),
-    #     "svm": (
-    #         SVC,
-    #         {"kernel": "rbf", "probability": True, "random_state": config.random_seed, "C": 1.0}
-    #     ),
+        "random_forest": (
+            RandomForestClassifier,
+            {"n_estimators": 100, "max_depth": 10, "random_state": config.random_seed, "n_jobs": -1}
+        ),
+        "svm": (
+            SVC,
+            {"kernel": "rbf", "probability": True, "random_state": config.random_seed, "C": 1.0}
+        ),
     }
     
     # if XGBOOST_AVAILABLE:
@@ -1209,7 +1209,7 @@ def main():
         result = loso_cross_validation(
             X, y, subjects_arr, feature_names,
             model_class, model_key, model_kwargs, logger,
-            enable_tuning=False,  # Enable hyperparameter tuning
+            enable_tuning=True,  # Enable hyperparameter tuning
             param_grid=param_grid, threshold_method= 'constrained_gmean', min_recall=0.70, max_fpr=0.30  
         )
         
