@@ -27,9 +27,9 @@ RF_PARAMS = {
 }
 
 SVM_PARAMS = {
-    "C": 10.0,
+    "C": 1.0,
     "kernel": "rbf",
-    "gamma": 0.1,
+    "gamma": 'scale',
     "degree": 2,
     "probability": True,
     "class_weight": "balanced",

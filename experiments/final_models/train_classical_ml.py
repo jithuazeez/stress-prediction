@@ -22,10 +22,12 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 
 # Imports from shared modules
+
 from shared.raw_loader import load_raw_signals, get_all_subjects, get_experiment_time_range
 from shared.alignment import align_signals
 from shared.windowing import create_labeled_windows, parse_stress_events, compute_subject_stats
 from shared.evaluation import evaluate_predictions, find_optimal_threshold
+from shared.windowing import compute_subject_stats_from_baseline
 from shared.config import DEFAULT_CONFIG, Config
 from shared.logging_utils import setup_logger
 
@@ -67,6 +69,7 @@ def process_subject(subject_folder: Path, config: Config, extractor: BasicFeatur
     
     # Compute subject stats
     subject_stats = compute_subject_stats(aligned)
+    # subject_stats = compute_subject_stats_from_baseline(aligned, baseline_minutes=10)
     
     # Parse stress events
     event_info = parse_stress_events(
@@ -142,14 +145,27 @@ def prepare_data(df: pd.DataFrame, logger) -> Tuple[np.ndarray, np.ndarray, np.n
     """
     metadata_cols = ["subject_id", "window_start", "window_end", "label_5min"]
     
+    # Compare class distribution before and after filtering
+    print("BEFORE filtering:")
+    print(f"Total windows: {len(df)}")
+    print(f"Stress windows: {sum(df['label_5min'] == 1)}")
+    print(f"Stress ratio: {sum(df['label_5min'] == 1) / len(df):.2%}")
+
+ 
     # Stage 1: Quality filtering - keep only windows where HRV succeeded
     if 'hr_bpm' in df.columns:
-        initial_count = len(df)
-        df_filtered = df[df['hr_bpm'].notna()].copy()
-        logger.info(f"Quality filtering: {len(df_filtered)}/{initial_count} windows retained ({100*len(df_filtered)/initial_count:.1f}%)")
+        # initial_count = len(df)
+        # df_filtered = df[df['hr_bpm'].notna()].copy()
+        # logger.info(f"Quality filtering: {len(df_filtered)}/{initial_count} windows retained ({100*len(df_filtered)/initial_count:.1f}%)")
+        df_filtered = df.copy()
     else:
         df_filtered = df.copy()
         logger.info("No HRV column - skipping quality filtering")
+
+    print("\nAFTER filtering:")
+    print(f"Total windows: {len(df_filtered)}")
+    print(f"Stress windows: {sum(df_filtered['label_5min'] == 1)}")
+    print(f"Stress ratio: {sum(df['label_5min'] == 1) / len(df_filtered):.2%}")
     
     # Get feature columns
     feature_cols = [col for col in df_filtered.columns if col not in metadata_cols]
@@ -174,7 +190,7 @@ def prepare_data(df: pd.DataFrame, logger) -> Tuple[np.ndarray, np.ndarray, np.n
 
 def loso_with_ablation_b(X: np.ndarray, y: np.ndarray, subjects: np.ndarray,
                           model_class, model_name: str, model_params: Dict,
-                          logger) -> Dict:
+                          logger, feature_names: List[str]) -> Dict:
     """
     LOSO CV with Ablation B: 3 threshold strategies per fold.
     
@@ -225,7 +241,25 @@ def loso_with_ablation_b(X: np.ndarray, y: np.ndarray, subjects: np.ndarray,
         # Train model
         model = model_class(**model_params)
         model.fit(X_train, y_train)
-        
+        # if model_name == "LR":
+        #     print(X_train)
+        #     import matplotlib.pyplot as plt
+        #     feature_names = feature_names  # or your feature list
+        #     coefficients = model.coef_[0]    
+        #     importance_df = pd.DataFrame({
+        #     'feature': feature_names,
+        #     'coefficient': coefficients,
+        #     'abs_coefficient': np.abs(coefficients)
+        # }).sort_values('abs_coefficient', ascending=False)   
+        #     plt.figure(figsize=(10, 8))
+        #     plt.barh(importance_df['feature'][:20], importance_df['abs_coefficient'][:20])
+        #     plt.xlabel('Absolute Coefficient')
+        #     plt.title('Top 20 Feature Importance (Logistic Regression)')
+        #     plt.gca().invert_yaxis()
+        #     plt.savefig(f"feature_importance_{model_name}.png")
+        #     plt.close()
+
+            
         # Get probabilities
         y_train_proba = model.predict_proba(X_train)[:, 1]
         y_test_proba = model.predict_proba(X_test)[:, 1]
@@ -364,7 +398,7 @@ def main():
         start_time = time.time()
         
         # Run LOSO with Ablation B
-        results = loso_with_ablation_b(X, y, subjects_arr, model_class, model_name.upper(), model_params, logger)
+        results = loso_with_ablation_b(X, y, subjects_arr, model_class, model_name.upper(), model_params, logger, feature_names)
         
         # Save results for each threshold strategy
         model_dir = results_dir / model_name

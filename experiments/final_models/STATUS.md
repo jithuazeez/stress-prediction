@@ -182,3 +182,4 @@ experiments/final_models/
 - **Threshold strategies**: B1, B2, B3 are producing identical results for some models. This suggests the constraints (recall≥70%, FAR≤30%) are not binding. May need to adjust constraints or investigate threshold selection.
 - **Class imbalance**: 12% positive class is challenging. PR-AUC (~0.38) is more informative than AUROC (~0.75) for this imbalanced dataset.
 
+

@@ -319,7 +319,7 @@ def generate_precision_recall_curves(results_dir: Path, output_dir: Path):
     print("FIGURE 5: Precision-Recall Curves")
     print("="*60)
     
-    models = ["lr", "tcn", "or", "cascade", "stacked"]
+    models = ["lr", "tcn", "stacked"]
     model_names = {"lr": "Logistic Regression", "tcn": "TCN", "or": "Logical OR",
                    "cascade": "Cascade", "stacked": "Stacked"}
     strategy = "b1"
@@ -377,7 +377,7 @@ def generate_threshold_sensitivity_plots(results_dir: Path, output_dir: Path):
     print("FIGURE 6: Threshold Sensitivity Plots")
     print("="*60)
     
-    models = ["lr", "tcn", "or", "cascade", "stacked"]
+    models = ["lr", "tcn", "stacked"]
     model_names = {"lr": "Logistic Regression", "tcn": "TCN", "or": "Logical OR",
                    "cascade": "Cascade", "stacked": "Stacked"}
     
@@ -492,4 +492,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 

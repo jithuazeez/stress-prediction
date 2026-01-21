@@ -39,20 +39,20 @@ def load_predictions(model_name: str, strategy: str, results_dir: Path) -> pd.Da
     return pd.read_csv(pred_path)
 
 
-def logical_or_fusion(lr_proba: np.ndarray, tcn_proba: np.ndarray,
-                     lr_thr: float, tcn_thr: float) -> np.ndarray:
-    """Logical OR: predict stress if either model predicts stress."""
-    return ((lr_proba >= lr_thr) | (tcn_proba >= tcn_thr)).astype(int)
+# def logical_or_fusion(lr_proba: np.ndarray, tcn_proba: np.ndarray,
+#                      lr_thr: float, tcn_thr: float) -> np.ndarray:
+#     """Logical OR: predict stress if either model predicts stress."""
+#     return ((lr_proba >= lr_thr) | (tcn_proba >= tcn_thr)).astype(int)
 
 
-def cascade_fusion(lr_proba: np.ndarray, tcn_proba: np.ndarray,
-                  lr_thr: float, tcn_thr: float) -> np.ndarray:
-    """Cascade: LR screens, TCN confirms."""
-    pred = np.zeros(len(lr_proba), dtype=int)
-    # If LR predicts stress, check TCN
-    lr_positive = lr_proba >= lr_thr
-    pred[lr_positive] = (tcn_proba[lr_positive] >= tcn_thr).astype(int)
-    return pred
+# def cascade_fusion(lr_proba: np.ndarray, tcn_proba: np.ndarray,
+#                   lr_thr: float, tcn_thr: float) -> np.ndarray:
+#     """Cascade: LR screens, TCN confirms."""
+#     pred = np.zeros(len(lr_proba), dtype=int)
+#     # If LR predicts stress, check TCN
+#     lr_positive = lr_proba >= lr_thr
+#     pred[lr_positive] = (tcn_proba[lr_positive] >= tcn_thr).astype(int)
+#     return pred
 
 
 def train_stacked_meta_model(lr_proba: np.ndarray, tcn_proba: np.ndarray,
@@ -168,7 +168,7 @@ def train_stacked_meta_model(lr_proba: np.ndarray, tcn_proba: np.ndarray,
             }
         }
         
-        logger.info(f"{strategy.upper()}: Recall={agg_metrics['recall']:.3f}, FAR={agg_metrics['far']:.3f}")
+        logger.info(f"{strategy.upper()}: Recall={agg_metrics['recall']:.3f}, FAR={agg_metrics['false_alarm_rate']:.3f}")
     
     return aggregated_results
 
@@ -259,7 +259,7 @@ def train_rule_based_fusion(lr_proba: np.ndarray, tcn_proba: np.ndarray,
         
         pbar.set_postfix({
             "B1_Rec": f"{metrics_b1['recall']:.2f}",
-            "B3_FAR": f"{metrics_b3['far']:.2f}"
+            "B3_FAR": f"{metrics_b3['false_alarm_rate']:.2f}"
         })
     
     pbar.close()
